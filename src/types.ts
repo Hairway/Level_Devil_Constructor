@@ -1,4 +1,4 @@
-export type TrapObjectType = 'spike' | 'saw' | 'pit';
+export type TrapObjectType = 'spike' | 'saw' | 'pit' | 'fallingBlock' | 'crusher' | 'laser';
 export type TriggerAction = 'activate' | 'openPit' | 'startDoorChase';
 
 export interface LevelObject {
@@ -59,5 +59,5 @@ export interface AnalyticsEvent {
 }
 
 export type EditorMode = 'play' | 'constructor';
-export type EditorTool = 'select' | 'spike' | 'saw' | 'pit' | 'trigger' | 'erase';
+export type EditorTool = 'select' | 'spike' | 'saw' | 'pit' | 'fallingBlock' | 'crusher' | 'laser' | 'trigger' | 'erase';
 export type ActiveRun = number;

@@ -1,7 +1,11 @@
 import { PlayableProject } from './types';
+import pixiRuntime from './vendor/pixi.min.js?raw';
 
 const safeProjectJson = (project: PlayableProject) =>
   JSON.stringify(project, null, 2).replace(/<\/script/gi, '<\\/script');
+
+const safeScript = (code: string) =>
+  code.replace(/<\/script/gi, '<\\/script');
 
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (char) => ({
@@ -22,35 +26,35 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
     html,body,#app{margin:0;width:100%;height:100%;overflow:hidden;background:#c77b00;touch-action:none}
     body{font-family:Arial,sans-serif}
     #app{display:flex;align-items:center;justify-content:center}
-    #stage{position:relative;width:min(100vw,100vh);height:min(100vw,100vh);background:#c77b00;overflow:hidden}
-    #level{position:absolute;left:23.4375%;top:39.0625%;width:53.125%;height:21.875%;overflow:hidden;background:#e2a33c}
+    #stage{position:relative;width:min(100vw,56.25vh);height:min(177.7778vw,100vh);background:#c77b00;overflow:hidden}
+    #level{position:absolute;left:2.8%;top:39.0625%;width:94.4%;height:21.875%;overflow:hidden;background:#e2a33c}
     canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
     .hud{position:absolute;z-index:5;color:#231708;font-family:monospace;font-weight:900;letter-spacing:0;text-align:center;text-transform:uppercase;user-select:none}
-    #title{left:19%;top:21.7%;width:62%;font-size:clamp(18px,4.1vw,44px)}
-    #dots{left:40.6%;top:9.7%;width:18.8%;display:flex;gap:7px;justify-content:center}
+    #title{left:7.5%;top:21.7%;width:85%;font-size:clamp(18px,4.1vw,44px)}
+    #dots{left:33%;top:9.7%;width:34%;display:flex;gap:7px;justify-content:center}
     #dots i{width:19px;height:19px;border:4px solid #231708;box-sizing:border-box}
     .filled{background:#231708}
     button{position:absolute;z-index:6;border:0;border-radius:0;font-weight:900;color:#231708;background:#ffc164;box-shadow:inset 0 -6px 0 #b37111;cursor:pointer;touch-action:none}
-    #install{right:7.5%;top:89.5%;width:20%;height:6.1%;font-size:clamp(8px,1.8vw,14px)}
-    #sound{left:25.6%;top:89.5%;width:6.7%;aspect-ratio:1/1;background:#bf790f;color:#fff36b;font-size:clamp(18px,4vw,34px)}
+    #install{left:57.8%;top:89.5%;width:35.6%;height:6.1%;font-size:clamp(8px,1.8vw,14px)}
+    #sound{left:6.7%;top:89.5%;width:12%;aspect-ratio:1/1;background:#bf790f;color:#fff36b;font-size:clamp(18px,4vw,34px)}
     .ctrl{background:transparent;box-shadow:none;border:4px solid #ffd184;height:4.8%;font-size:0}
-    #left{left:25.9%;top:75.8%;width:12%;clip-path:polygon(10% 50%,20% 20%,100% 20%,100% 80%,20% 80%)}
-    #right{left:42.3%;top:75.8%;width:12%;clip-path:polygon(0 20%,90% 20%,100% 50%,90% 80%,0 80%)}
-    #jump{left:62.2%;top:75.8%;width:12%;clip-path:polygon(0 70%,50% 10%,100% 70%,100% 90%,0 90%)}
+    #left{left:6.9%;top:75.8%;width:21.25%;clip-path:polygon(10% 50%,20% 20%,100% 20%,100% 80%,20% 80%)}
+    #right{left:36.1%;top:75.8%;width:21.25%;clip-path:polygon(0 20%,90% 20%,100% 50%,90% 80%,0 80%)}
+    #jump{left:71.5%;top:75.8%;width:21.25%;clip-path:polygon(0 70%,50% 10%,100% 70%,100% 90%,0 90%)}
     #skip{display:none;left:41%;top:31%;width:18%;height:6%;animation:bounce .8s infinite}
     #cta{display:none;position:absolute;inset:0;z-index:10;background:rgba(0,0,0,.92);color:white;align-items:center;justify-content:center;flex-direction:column;text-align:center;font-family:monospace;font-weight:900;padding:24px}
     #cta button{position:static;width:240px;height:52px;background:#10b981;color:white;box-shadow:inset 0 -6px 0 #047857}
     @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
     @media (orientation:landscape){
-      #stage{width:100vw;height:min(100vh,56.25vw)}
-      #level{left:23.4375%;top:39.0625%;width:53.125%;height:21.875%}
-      #title{left:30%;top:31%;width:40%;font-size:clamp(18px,3vw,42px)}
-      #dots{top:24.4%}
-      #sound{left:3.75%;top:25.5%}
-      #install{right:3.75%;top:25.5%}
-      #left{left:5%;top:68.8%}
-      #right{left:21.25%;top:68.8%}
-      #jump{left:83.2%;top:68.8%}
+      #stage{width:min(100vw,177.7778vh);height:min(56.25vw,100vh)}
+      #level{left:23.4375%;top:30.56%;width:53.125%;height:38.89%}
+      #title{left:30%;top:16.4%;width:40%;font-size:clamp(18px,3vw,42px)}
+      #dots{left:40.6%;top:5%;width:18.8%}
+      #sound{left:3.75%;top:6.4%;width:6.7%}
+      #install{left:76.25%;top:6.4%;width:20%;height:11.7%}
+      #left{left:5%;top:83.3%;width:12%}
+      #right{left:21.25%;top:83.3%;width:12%}
+      #jump{left:83.2%;top:83.3%;width:12%}
     }
   </style>
 </head>
@@ -69,7 +73,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       <div id="cta"><h1>YOU DIED... AGAIN?</h1><p>LEVEL DEVIL IS BRUTAL. CAN YOU OUTSMART IT?</p><button>PLAY NOW</button></div>
     </div>
   </div>
-  <script src="https://pixijs.download/v7.3.2/pixi.min.js"></script>
+  <script>${safeScript(pixiRuntime)}</script>
   <script>
     const PROJECT = ${safeProjectJson(project)};
     const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
@@ -80,10 +84,15 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
     const g = new PIXI.Graphics();
     app.stage.addChild(g);
     const keys = {};
-    let runIndex = 0, run, config, player, door, activeIds, firedIds, doorTriggered, doorTimer, doorVx, doorVy, dead, skipActive, skipClicked, floorCollapsed;
+    let runIndex = 0, run, config, player, door, activeIds, firedIds, objectRuntime, doorTriggered, doorTimer, doorVx, doorVy, dead, skipActive, skipClicked, floorCollapsed;
 
     const clamp = (v,min,max) => Math.max(min, Math.min(max, v));
     const overlap = (a,b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    const objectRect = o => {
+      const rt = objectRuntime.get(o.id) || o;
+      if (o.type === 'spike' || o.type === 'pit') return { x: rt.x - o.width / 2, y: rt.y - o.height, w: o.width, h: o.height };
+      return { x: rt.x - o.width / 2, y: rt.y - o.height / 2, w: o.width, h: o.height };
+    };
     const title = document.getElementById('title');
     const dots = document.getElementById('dots');
     const skip = document.getElementById('skip');
@@ -106,6 +115,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       door = { x: config.doorSpawnX, y: GROUND_Y };
       activeIds = new Set(config.objects.filter(o => o.initiallyActive).map(o => o.id));
       firedIds = new Set();
+      objectRuntime = new Map(config.objects.map(o => [o.id, { x: o.x, y: o.y, vy: 0 }]));
       doorTriggered = runIndex === 2;
       doorTimer = 0; doorVx = 0; doorVy = 0; dead = false; skipActive = false; skipClicked = false; floorCollapsed = false;
       skip.style.display = 'none';
@@ -119,7 +129,11 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       if (firedIds.has(trigger.id)) return;
       firedIds.add(trigger.id);
       if (trigger.action === 'startDoorChase') doorTriggered = true;
-      else activeIds.add(trigger.targetId);
+      else {
+        activeIds.add(trigger.targetId);
+        const target = config.objects.find(o => o.id === trigger.targetId);
+        if (target && !objectRuntime.has(target.id)) objectRuntime.set(target.id, { x: target.x, y: target.y, vy: 0 });
+      }
     }
 
     function die(cause) {
@@ -157,18 +171,41 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
     function drawObject(object) {
       const active = activeIds.has(object.id) || object.initiallyActive;
       if (!active && object.type !== 'pit') return;
+      const rt = objectRuntime.get(object.id) || object;
       if (object.type === 'spike') {
         g.beginFill(COL_INK);
-        for (let x = object.x - object.width / 2; x < object.x + object.width / 2; x += object.width / 3) {
-          g.drawPolygon([x, object.y, x + object.width / 6, object.y - object.height, x + object.width / 3, object.y]);
+        for (let x = rt.x - object.width / 2; x < rt.x + object.width / 2; x += object.width / 3) {
+          g.drawPolygon([x, rt.y, x + object.width / 6, rt.y - object.height, x + object.width / 3, rt.y]);
         }
         g.endFill();
       } else if (object.type === 'saw') {
         g.beginFill(0x8a1f10, active ? 1 : .45);
-        g.drawCircle(object.x, object.y, object.width / 2);
+        g.drawCircle(rt.x, rt.y, object.width / 2);
         g.endFill();
         g.lineStyle(3, COL_INK, .8);
-        g.drawCircle(object.x, object.y, object.width / 3);
+        g.drawCircle(rt.x, rt.y, object.width / 3);
+      } else if (object.type === 'fallingBlock') {
+        g.beginFill(0x5b3410, active ? 1 : .42);
+        g.lineStyle(3, COL_INK, active ? .85 : .35);
+        g.drawRect(rt.x - object.width / 2, rt.y - object.height / 2, object.width, object.height);
+        g.endFill();
+      } else if (object.type === 'crusher') {
+        g.beginFill(0x3b2611, active ? 1 : .45);
+        g.lineStyle(3, 0x8a1f10, active ? .9 : .35);
+        g.drawRect(rt.x - object.width / 2, rt.y - object.height / 2, object.width, object.height);
+        g.endFill();
+        g.beginFill(0x8a1f10, active ? 1 : .35);
+        for (let x = rt.x - object.width / 2; x < rt.x + object.width / 2; x += object.width / 4) {
+          g.drawPolygon([x, rt.y + object.height / 2, x + object.width / 8, rt.y + object.height / 2 + 13, x + object.width / 4, rt.y + object.height / 2]);
+        }
+        g.endFill();
+      } else if (object.type === 'laser') {
+        g.beginFill(0xfef08a, active ? .95 : .25);
+        g.drawRect(rt.x - object.width / 2, rt.y - object.height / 2, object.width, object.height);
+        g.endFill();
+        g.lineStyle(3, 0xef4444, active ? .85 : .25);
+        g.moveTo(rt.x - object.width / 2, rt.y);
+        g.lineTo(rt.x + object.width / 2, rt.y);
       }
     }
 
@@ -253,10 +290,19 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
         if (overlap(pRect, { x: t.x, y: t.y, w: t.width, h: t.height })) activateTrigger(t);
       });
       config.objects.forEach(o => {
+        if (o.type !== 'fallingBlock' || !activeIds.has(o.id)) return;
+        const rt = objectRuntime.get(o.id) || { x: o.x, y: o.y, vy: 0 };
+        rt.vy = Math.min(rt.vy + .62 * delta, 13);
+        rt.y = Math.min(rt.y + rt.vy * delta, GROUND_Y - o.height / 2 + 1);
+        objectRuntime.set(o.id, rt);
+      });
+      config.objects.forEach(o => {
         const active = activeIds.has(o.id) || o.initiallyActive;
         if (!active) return;
         if (o.type === 'spike' && Math.abs(player.x - o.x) < o.width / 2 && player.y > GROUND_Y - 12) die('SPIKE');
         if (o.type === 'saw' && overlap(pRect, { x: o.x - o.width / 2, y: o.y - o.height / 2, w: o.width, h: o.height })) die('SAW');
+        if ((o.type === 'fallingBlock' || o.type === 'crusher') && overlap(pRect, objectRect(o))) die('CRUSH');
+        if (o.type === 'laser' && overlap(pRect, objectRect(o))) die('LASER');
       });
 
       const hasDoorTrigger = config.triggers.some(t => t.action === 'startDoorChase');

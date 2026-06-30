@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import * as PIXI from 'pixi.js';
-import { ActiveRun, EditorMode, EditorTool, GameConfig, LevelObject, TriggerZone } from '../types';
+import { ActiveRun, EditorMode, EditorTool, GameConfig, LevelObject, TrapObjectType, TriggerZone } from '../types';
 import * as A from '../assets';
 
 const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
@@ -22,7 +22,26 @@ const COL_INK = 0x231708;
 const COL_TRIGGER = 0x38bdf8;
 const COL_CONNECTOR = 0xfbbf24;
 
-type DeathCause = 'SAW' | 'SPIKE' | 'PIT' | 'REDIRECT';
+type DeathCause = 'SAW' | 'SPIKE' | 'PIT' | 'CRUSH' | 'LASER' | 'REDIRECT';
+type ObjectRuntime = { x: number; y: number; vy: number };
+
+const objectPresets: Record<TrapObjectType, { width: number; height: number; y: number; initiallyActive: boolean; label: string }> = {
+  spike: { width: 30, height: 22, y: GROUND_Y + 1, initiallyActive: true, label: 'Spike' },
+  saw: { width: 36, height: 36, y: GROUND_Y - 36, initiallyActive: false, label: 'Saw' },
+  pit: { width: 90, height: 42, y: GROUND_Y + 1, initiallyActive: false, label: 'Opening Pit' },
+  fallingBlock: { width: 54, height: 44, y: 84, initiallyActive: false, label: 'Falling Block' },
+  crusher: { width: 58, height: 96, y: 160, initiallyActive: false, label: 'Crusher' },
+  laser: { width: 130, height: 14, y: 212, initiallyActive: false, label: 'Laser Beam' },
+};
+
+const isTrapTool = (tool: EditorTool): tool is TrapObjectType => tool in objectPresets;
+
+const objectLocalRect = (object: LevelObject) => {
+  if (object.type === 'spike' || object.type === 'pit') {
+    return { x: -object.width / 2, y: -object.height, w: object.width, h: object.height };
+  }
+  return { x: -object.width / 2, y: -object.height / 2, w: object.width, h: object.height };
+};
 
 const cloneConfig = (config: GameConfig): GameConfig => ({
   ...config,
@@ -102,6 +121,7 @@ export default function LevelDevilGame({
     playerMoved: false,
     activeObjectIds: new Set<string>(),
     firedTriggerIds: new Set<string>(),
+    objectRuntime: new Map<string, ObjectRuntime>(),
   });
 
   useEffect(() => {
@@ -390,6 +410,7 @@ export default function LevelDevilGame({
 
     const makeObjectSprite = (object: LevelObject) => {
       let display: PIXI.DisplayObject;
+      const active = stateRef.current.activeObjectIds.has(object.id);
       if (object.type === 'spike') {
         const sprite = new PIXI.Sprite(texSpike);
         sprite.anchor.set(0.5, 1);
@@ -399,19 +420,50 @@ export default function LevelDevilGame({
       } else if (object.type === 'saw') {
         const sprite = new PIXI.Sprite(texSaw);
         sprite.anchor.set(0.5);
-        sprite.tint = stateRef.current.activeObjectIds.has(object.id) ? 0xffffff : 0x6b4a21;
+        sprite.tint = active ? 0xffffff : 0x6b4a21;
         sprite.scale.set(object.width / 16, object.height / 16);
         display = sprite;
-      } else {
+      } else if (object.type === 'pit') {
         const g = new PIXI.Graphics();
-        const active = stateRef.current.activeObjectIds.has(object.id);
         g.beginFill(active ? 0x161616 : 0x6b4a21, active ? 0.9 : 0.45);
         g.drawRect(-object.width / 2, -object.height, object.width, object.height);
         g.endFill();
         display = g;
+      } else if (object.type === 'fallingBlock') {
+        const g = new PIXI.Graphics();
+        g.beginFill(0x5b3410, active ? 1 : 0.42);
+        g.lineStyle(3, COL_INK, active ? 0.85 : 0.35);
+        g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
+        g.endFill();
+        g.beginFill(COL_INK, active ? 0.55 : 0.2);
+        g.drawRect(-object.width / 2 + 8, -object.height / 2 + 8, object.width - 16, 6);
+        g.endFill();
+        display = g;
+      } else if (object.type === 'crusher') {
+        const g = new PIXI.Graphics();
+        g.beginFill(0x3b2611, active ? 1 : 0.45);
+        g.lineStyle(3, 0x8a1f10, active ? 0.9 : 0.35);
+        g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
+        g.endFill();
+        g.beginFill(0x8a1f10, active ? 1 : 0.35);
+        for (let x = -object.width / 2; x < object.width / 2; x += object.width / 4) {
+          g.drawPolygon([x, object.height / 2, x + object.width / 8, object.height / 2 + 13, x + object.width / 4, object.height / 2]);
+        }
+        g.endFill();
+        display = g;
+      } else {
+        const g = new PIXI.Graphics();
+        g.beginFill(0xfef08a, active ? 0.95 : 0.25);
+        g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
+        g.endFill();
+        g.lineStyle(3, 0xef4444, active ? 0.85 : 0.25);
+        g.moveTo(-object.width / 2, 0);
+        g.lineTo(object.width / 2, 0);
+        display = g;
       }
-      display.x = object.x;
-      display.y = object.y;
+      const runtime = stateRef.current.editorMode === 'play' ? stateRef.current.objectRuntime.get(object.id) : undefined;
+      display.x = runtime?.x ?? object.x;
+      display.y = runtime?.y ?? object.y;
       return display;
     };
 
@@ -426,11 +478,12 @@ export default function LevelDevilGame({
         const ty = trigger.y + trigger.height / 2;
         const ox = target ? target.x : s.config.doorSpawnX;
         const oy = target ? target.y - target.height / 2 : GROUND_Y - DOOR_H / 2;
-        connectorsLayer.lineStyle(2, COL_CONNECTOR, 0.8);
+        const selected = s.selectedEntityId === trigger.id || s.selectedEntityId === trigger.targetId;
+        connectorsLayer.lineStyle(selected ? 4 : 2, selected ? 0xffffff : COL_CONNECTOR, selected ? 1 : 0.8);
         connectorsLayer.moveTo(tx, ty);
         connectorsLayer.lineTo(ox, oy);
-        connectorsLayer.beginFill(COL_CONNECTOR, 1);
-        connectorsLayer.drawCircle(ox, oy, 4);
+        connectorsLayer.beginFill(selected ? 0xffffff : COL_CONNECTOR, 1);
+        connectorsLayer.drawCircle(ox, oy, selected ? 6 : 4);
         connectorsLayer.endFill();
       });
     };
@@ -441,23 +494,40 @@ export default function LevelDevilGame({
       if (s.editorMode !== 'constructor' || !s.showTriggers) return;
 
       s.config.triggers.forEach((trigger) => {
+        const box = new PIXI.Container();
         const g = new PIXI.Graphics();
         const selected = s.selectedEntityId === trigger.id;
+        const target = s.config.objects.find((object) => object.id === trigger.targetId);
         g.beginFill(COL_TRIGGER, selected ? 0.28 : 0.16);
         g.lineStyle(selected ? 4 : 2, selected ? 0xffffff : COL_TRIGGER, 0.9);
         g.drawRect(0, 0, trigger.width, trigger.height);
         g.endFill();
-        g.x = trigger.x;
-        g.y = trigger.y;
-        g.eventMode = 'static';
-        g.cursor = 'move';
-        g.on('pointerdown', (e: any) => {
+        box.addChild(g);
+
+        const label = new PIXI.Text(`${trigger.label}\n-> ${target?.label || trigger.targetId}`, {
+          fill: selected ? 0xffffff : 0xdff7ff,
+          fontSize: 10,
+          fontFamily: 'monospace',
+          lineHeight: 11,
+          stroke: 0x063344,
+          strokeThickness: 2,
+        });
+        label.x = 4;
+        label.y = 4;
+        label.resolution = 2;
+        box.addChild(label);
+
+        box.x = trigger.x;
+        box.y = trigger.y;
+        box.eventMode = 'static';
+        box.cursor = 'move';
+        box.on('pointerdown', (e: any) => {
           if (stateRef.current.editorMode !== 'constructor') return;
           const p = e.data.getLocalPosition(world);
-          dragging = { kind: 'trigger', id: trigger.id, dx: p.x - trigger.x, dy: p.y - trigger.y, display: g };
+          dragging = { kind: 'trigger', id: trigger.id, dx: p.x - trigger.x, dy: p.y - trigger.y, display: box };
           onSelectEntity(trigger.id);
         });
-        triggersLayer.addChild(g);
+        triggersLayer.addChild(box);
       });
     };
 
@@ -480,8 +550,9 @@ export default function LevelDevilGame({
           });
 
           const outline = new PIXI.Graphics();
+          const rect = objectLocalRect(object);
           outline.lineStyle(selected ? 4 : 2, selected ? 0xffffff : 0x000000, selected ? 0.9 : 0.35);
-          outline.drawRect(-object.width / 2, -object.height, object.width, object.height);
+          outline.drawRect(rect.x, rect.y, rect.w, rect.h);
           outline.x = object.x;
           outline.y = object.y;
           objectsLayer.addChild(outline);
@@ -489,6 +560,22 @@ export default function LevelDevilGame({
 
         objectsLayer.addChild(display);
       });
+    };
+
+    const objectWorldRect = (object: LevelObject) => {
+      const runtime = stateRef.current.objectRuntime.get(object.id);
+      const rect = objectLocalRect(object);
+      const x = runtime?.x ?? object.x;
+      const y = runtime?.y ?? object.y;
+      return { x: x + rect.x, y: y + rect.y, w: rect.w, h: rect.h };
+    };
+
+    const redrawHazards = () => {
+      const s = stateRef.current;
+      drawFloor(s.floorCollapsed);
+      drawObjects();
+      drawTriggers();
+      drawConnectors();
     };
 
     const drawScene = () => {
@@ -548,6 +635,7 @@ export default function LevelDevilGame({
       s.spawnFrames = 10;
       s.activeObjectIds = new Set(s.config.objects.filter((object) => object.initiallyActive).map((object) => object.id));
       s.firedTriggerIds = new Set();
+      s.objectRuntime = new Map(s.config.objects.map((object) => [object.id, { x: object.x, y: object.y, vy: 0 }]));
       setIsSkipVisible(false);
       setIsCtaVisible(false);
       drawScene();
@@ -608,9 +696,12 @@ export default function LevelDevilGame({
       } else {
         s.activeObjectIds.add(trigger.targetId);
         const target = s.config.objects.find((object) => object.id === trigger.targetId);
+        if (target && !s.objectRuntime.has(target.id)) {
+          s.objectRuntime.set(target.id, { x: target.x, y: target.y, vy: 0 });
+        }
         onLogEvent('TRAP_ACTIVATE', `[Trigger] ${trigger.label} activated ${target?.label || trigger.targetId}`);
       }
-      drawScene();
+      redrawHazards();
     };
 
     floorGraphics.eventMode = 'static';
@@ -661,16 +752,18 @@ export default function LevelDevilGame({
           label: `Trigger ${next.triggers.length + 1}`,
         });
       } else {
+        if (!isTrapTool(s.currentTool)) return;
         const type = s.currentTool;
+        const preset = objectPresets[type];
         next.objects.push({
           id,
           type,
           x,
-          y: GROUND_Y + (type === 'saw' ? -36 : 1),
-          width: type === 'pit' ? 90 : type === 'saw' ? 36 : 30,
-          height: type === 'pit' ? 42 : type === 'saw' ? 36 : 22,
-          label: `${type[0].toUpperCase()}${type.slice(1)} ${next.objects.length + 1}`,
-          initiallyActive: type === 'spike',
+          y: preset.y,
+          width: preset.width,
+          height: preset.height,
+          label: `${preset.label} ${next.objects.length + 1}`,
+          initiallyActive: preset.initiallyActive,
         });
       }
       onConfigChange(next);
@@ -823,6 +916,17 @@ export default function LevelDevilGame({
         }
       });
 
+      let hazardsMoved = false;
+      for (const object of s.config.objects) {
+        if (object.type !== 'fallingBlock' || !s.activeObjectIds.has(object.id)) continue;
+        const runtime = s.objectRuntime.get(object.id) || { x: object.x, y: object.y, vy: 0 };
+        runtime.vy = Math.min(runtime.vy + 0.62 * delta, 13);
+        runtime.y = Math.min(runtime.y + runtime.vy * delta, GROUND_Y - object.height / 2 + 1);
+        s.objectRuntime.set(object.id, runtime);
+        hazardsMoved = true;
+      }
+      if (hazardsMoved) drawObjects();
+
       for (const object of s.config.objects) {
         const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
         if (!active) continue;
@@ -835,6 +939,20 @@ export default function LevelDevilGame({
           rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, object.x - object.width / 2, object.y - object.height / 2, object.width, object.height)
         ) {
           triggerDeath('SAW');
+          return;
+        }
+        if (
+          (object.type === 'fallingBlock' || object.type === 'crusher') &&
+          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, objectWorldRect(object).x, objectWorldRect(object).y, objectWorldRect(object).w, objectWorldRect(object).h)
+        ) {
+          triggerDeath('CRUSH');
+          return;
+        }
+        if (
+          object.type === 'laser' &&
+          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, objectWorldRect(object).x, objectWorldRect(object).y, objectWorldRect(object).w, objectWorldRect(object).h)
+        ) {
+          triggerDeath('LASER');
           return;
         }
       }
@@ -961,10 +1079,10 @@ export default function LevelDevilGame({
   const stageButtonBase: CSSProperties = { position: 'absolute', zIndex: 20 };
   const levelViewportStyle: CSSProperties = {
     position: 'absolute',
-    left: '23.4375%',
-    top: '39.0625%',
-    width: '53.125%',
-    height: '21.875%',
+    left: isPortrait ? '2.8%' : '23.4375%',
+    top: isPortrait ? '39.0625%' : '30.56%',
+    width: isPortrait ? '94.4%' : '53.125%',
+    height: isPortrait ? '21.875%' : '38.89%',
     overflow: 'hidden',
     backgroundColor: '#e2a33c',
   };
@@ -980,18 +1098,18 @@ export default function LevelDevilGame({
         id="game-container"
         style={{
           position: 'relative',
-          width: '640px',
+          width: isPortrait ? '420px' : '920px',
           maxWidth: '100%',
-          aspectRatio: '1 / 1',
+          aspectRatio: isPortrait ? '9 / 16' : '16 / 9',
           overflow: 'hidden',
           backgroundColor: '#c77b00',
         }}
       >
-        <div style={{ ...stageButtonBase, left: '40.6%', top: isPortrait ? '9.7%' : '24.4%', width: '18.8%' }}>
+        <div style={{ ...stageButtonBase, left: isPortrait ? '33%' : '40.6%', top: isPortrait ? '9.7%' : '5%', width: isPortrait ? '34%' : '18.8%' }}>
           <LevelIndicators />
         </div>
 
-        <div style={{ ...stageButtonBase, left: isPortrait ? '19%' : '22%', top: isPortrait ? '21.7%' : '31%', width: isPortrait ? '62%' : '56%' }}>
+        <div style={{ ...stageButtonBase, left: isPortrait ? '7.5%' : '30%', top: isPortrait ? '21.7%' : '16.4%', width: isPortrait ? '85%' : '40%' }}>
           <GameTitle />
         </div>
 
@@ -999,23 +1117,23 @@ export default function LevelDevilGame({
           <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
         </div>
 
-        <div style={{ ...stageButtonBase, left: isPortrait ? '25.6%' : '3.75%', top: isPortrait ? '89.5%' : '25.5%', width: '6.7%', aspectRatio: '1 / 1' }}>
+        <div style={{ ...stageButtonBase, left: isPortrait ? '6.7%' : '3.75%', top: isPortrait ? '89.5%' : '6.4%', width: isPortrait ? '12%' : '6.7%', aspectRatio: '1 / 1' }}>
           <SoundButton style={{ width: '100%', height: '100%' }} />
         </div>
 
-        <div style={{ ...stageButtonBase, left: isPortrait ? '54.4%' : '76.25%', top: isPortrait ? '89.5%' : '25.5%', width: '20%', height: '6.1%' }}>
+        <div style={{ ...stageButtonBase, left: isPortrait ? '57.8%' : '76.25%', top: isPortrait ? '89.5%' : '6.4%', width: isPortrait ? '35.6%' : '20%', height: isPortrait ? '6.1%' : '11.7%' }}>
           <InstallButton style={{ width: '100%', height: '100%', padding: 0, fontSize: 'clamp(8px, 1.55vw, 11px)', whiteSpace: 'nowrap' }} />
         </div>
 
-        <div style={{ ...stageButtonBase, left: isPortrait ? '25.9%' : '5%', top: isPortrait ? '75.8%' : '68.8%', width: '12%' }}>
+        <div style={{ ...stageButtonBase, left: isPortrait ? '6.9%' : '5%', top: isPortrait ? '75.8%' : '83.3%', width: isPortrait ? '21.25%' : '12%' }}>
           <ControlButton keyCode="ArrowLeft" hollow={A.btnLeftHollow} filled={A.btnLeftFilled} label="Move left" width="100%" />
         </div>
 
-        <div style={{ ...stageButtonBase, left: isPortrait ? '42.3%' : '21.25%', top: isPortrait ? '75.8%' : '68.8%', width: '12%' }}>
+        <div style={{ ...stageButtonBase, left: isPortrait ? '36.1%' : '21.25%', top: isPortrait ? '75.8%' : '83.3%', width: isPortrait ? '21.25%' : '12%' }}>
           <ControlButton keyCode="ArrowRight" hollow={A.btnRightHollow} filled={A.btnRightFilled} label="Move right" width="100%" />
         </div>
 
-        <div style={{ ...stageButtonBase, left: isPortrait ? '62.2%' : '83.2%', top: isPortrait ? '75.8%' : '68.8%', width: '12%' }}>
+        <div style={{ ...stageButtonBase, left: isPortrait ? '71.5%' : '83.2%', top: isPortrait ? '75.8%' : '83.3%', width: isPortrait ? '21.25%' : '12%' }}>
           <ControlButton keyCode="Space" hollow={A.btnJumpHollow} filled={A.btnJumpFilled} label="Jump" width="100%" />
         </div>
 

@@ -7,11 +7,14 @@ import {
   LevelObject,
   PlayableProject,
   PlayableRun,
+  TrapObjectType,
   TriggerZone,
 } from './types';
 import LevelDevilGame from './components/LevelDevilGame';
 import { generateStandalonePlayable } from './exportPlayable';
 import {
+  ArrowDown,
+  ArrowUp,
   Boxes,
   Check,
   Copy,
@@ -33,6 +36,25 @@ import {
 
 const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 const STORAGE_KEY = 'level-devil-constructor-state-v2';
+
+const objectCatalog: Array<{
+  type: TrapObjectType;
+  label: string;
+  width: number;
+  height: number;
+  y: number;
+  initiallyActive: boolean;
+}> = [
+  { type: 'spike', label: 'Spike', width: 30, height: 22, y: 281, initiallyActive: true },
+  { type: 'saw', label: 'Saw', width: 36, height: 36, y: 244, initiallyActive: false },
+  { type: 'pit', label: 'Opening Pit', width: 90, height: 42, y: 281, initiallyActive: false },
+  { type: 'fallingBlock', label: 'Falling Block', width: 54, height: 44, y: 84, initiallyActive: false },
+  { type: 'crusher', label: 'Crusher', width: 58, height: 96, y: 160, initiallyActive: false },
+  { type: 'laser', label: 'Laser Beam', width: 130, height: 14, y: 212, initiallyActive: false },
+];
+
+const objectPreset = (type: TrapObjectType) =>
+  objectCatalog.find((item) => item.type === type) || objectCatalog[0];
 
 const baseObjects = (): LevelObject[] => [
   {
@@ -75,6 +97,26 @@ const baseObjects = (): LevelObject[] => [
     label: 'Hidden saw',
     initiallyActive: false,
   },
+  {
+    id: 'falling-block-a',
+    type: 'fallingBlock',
+    x: 570,
+    y: 84,
+    width: 54,
+    height: 44,
+    label: 'Falling block',
+    initiallyActive: false,
+  },
+  {
+    id: 'laser-a',
+    type: 'laser',
+    x: 570,
+    y: 212,
+    width: 130,
+    height: 14,
+    label: 'Laser beam',
+    initiallyActive: false,
+  },
 ];
 
 const baseTriggers = (): TriggerZone[] => [
@@ -97,6 +139,16 @@ const baseTriggers = (): TriggerZone[] => [
     targetId: 'pit-a',
     action: 'openPit',
     label: 'Pit trigger',
+  },
+  {
+    id: 'block-trigger',
+    x: 610,
+    y: 170,
+    width: 60,
+    height: 110,
+    targetId: 'falling-block-a',
+    action: 'activate',
+    label: 'Falling block trigger',
   },
 ];
 
@@ -205,6 +257,11 @@ const selectedObjectLabel = (config: GameConfig, id: string | null) => {
   return config.objects.find((object) => object.id === id)?.label ||
     config.triggers.find((trigger) => trigger.id === id)?.label ||
     id;
+};
+
+const triggerTargetLabel = (config: GameConfig, trigger: TriggerZone) => {
+  if (trigger.targetId === 'door') return 'Door';
+  return config.objects.find((object) => object.id === trigger.targetId)?.label || trigger.targetId;
 };
 
 export default function App() {
@@ -340,6 +397,17 @@ export default function App() {
     addLog('PROJECT', `Duplicated playable ${source.name}`);
   };
 
+  const deleteActivePlayable = () => {
+    if (projects.length <= 1) return;
+    const removed = activeProject.name;
+    setProjects((prev) => prev.filter((_, index) => index !== activeProjectIndex));
+    setActiveProjectIndex(Math.max(0, activeProjectIndex - 1));
+    setActiveRunIndex(0);
+    setCopySourceRunIndex(0);
+    setSelectedEntityId(null);
+    addLog('PROJECT_DELETE', `Deleted playable ${removed}`);
+  };
+
   const addRun = (copyCurrent = false, sourceRunIndex = activeRunIndex) => {
     const sourceRun = activeProject.runs[sourceRunIndex] || activeRun;
     const sourceConfig = copyCurrent ? sourceRun.config : createDefaultConfig();
@@ -352,6 +420,35 @@ export default function App() {
     setCopySourceRunIndex(activeProject.runs.length);
     setSelectedEntityId(null);
     addLog('RUN', copyCurrent ? `Copied ${sourceRun.name}` : 'Created empty run');
+  };
+
+  const deleteActiveRun = () => {
+    if (activeProject.runs.length <= 1) return;
+    const removed = activeRun.name;
+    const nextRunIndex = Math.max(0, activeRunIndex - 1);
+    setProjects((prev) => prev.map((project, projectIndex) => {
+      if (projectIndex !== activeProjectIndex) return project;
+      return { ...project, runs: project.runs.filter((_, runIndex) => runIndex !== activeRunIndex) };
+    }));
+    setActiveRunIndex(nextRunIndex);
+    setCopySourceRunIndex(Math.min(copySourceRunIndex, activeProject.runs.length - 2));
+    setSelectedEntityId(null);
+    addLog('RUN_DELETE', `Deleted ${removed}`);
+  };
+
+  const moveActiveRun = (direction: -1 | 1) => {
+    const targetIndex = activeRunIndex + direction;
+    if (targetIndex < 0 || targetIndex >= activeProject.runs.length) return;
+    setProjects((prev) => prev.map((project, projectIndex) => {
+      if (projectIndex !== activeProjectIndex) return project;
+      const runs = [...project.runs];
+      [runs[activeRunIndex], runs[targetIndex]] = [runs[targetIndex], runs[activeRunIndex]];
+      return { ...project, runs };
+    }));
+    setActiveRunIndex(targetIndex);
+    setCopySourceRunIndex(targetIndex);
+    setSelectedEntityId(null);
+    addLog('RUN_REORDER', `Moved run to position ${targetIndex + 1}`);
   };
 
   const deleteSelected = () => {
@@ -449,6 +546,7 @@ export default function App() {
   const standalonePlayable = useMemo(() => generateStandalonePlayable(activeProject), [activeProject]);
   const selectedObject = config.objects.find((object) => object.id === selectedEntityId);
   const selectedTrigger = config.triggers.find((trigger) => trigger.id === selectedEntityId);
+  const linkedTriggers = selectedObject ? config.triggers.filter((trigger) => trigger.targetId === selectedObject.id) : [];
   const selectedSpecialX = selectedEntityId === 'playerSpawn'
     ? config.playerSpawnX
     : selectedEntityId === 'door'
@@ -480,9 +578,7 @@ export default function App() {
 
   const toolButtons: Array<{ id: EditorTool; label: string }> = [
     { id: 'select', label: 'Select' },
-    { id: 'spike', label: 'Spike' },
-    { id: 'saw', label: 'Saw' },
-    { id: 'pit', label: 'Pit' },
+    ...objectCatalog.map((item) => ({ id: item.type, label: item.label })),
     { id: 'trigger', label: 'Trigger' },
     { id: 'erase', label: 'Erase' },
   ];
@@ -609,7 +705,7 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-2 mt-3">
+            <div className="grid grid-cols-3 gap-2 mt-3">
               <button onClick={addPlayable} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                 <Plus className="w-3.5 h-3.5" />
                 New
@@ -617,6 +713,14 @@ export default function App() {
               <button onClick={duplicatePlayable} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                 <Copy className="w-3.5 h-3.5" />
                 Copy
+              </button>
+              <button
+                onClick={deleteActivePlayable}
+                disabled={projects.length <= 1}
+                className="py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 disabled:opacity-35 disabled:hover:bg-red-500/10 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
               </button>
             </div>
           </section>
@@ -667,6 +771,32 @@ export default function App() {
                 Copy Run
               </button>
             </div>
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              <button
+                onClick={() => moveActiveRun(-1)}
+                disabled={activeRunIndex === 0}
+                className="py-2 px-2 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-35 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+                Up
+              </button>
+              <button
+                onClick={() => moveActiveRun(1)}
+                disabled={activeRunIndex === activeProject.runs.length - 1}
+                className="py-2 px-2 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-35 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+                Down
+              </button>
+              <button
+                onClick={deleteActiveRun}
+                disabled={activeProject.runs.length <= 1}
+                className="py-2 px-2 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 disabled:opacity-35 disabled:hover:bg-red-500/10 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </button>
+            </div>
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
@@ -698,6 +828,20 @@ export default function App() {
                 Links
               </button>
             </div>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={() => setOrientation('vertical')}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold border cursor-pointer ${orientation === 'vertical' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+              >
+                9:16
+              </button>
+              <button
+                onClick={() => setOrientation('horizontal')}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold border cursor-pointer ${orientation === 'horizontal' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+              >
+                16:9
+              </button>
+            </div>
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
@@ -707,6 +851,23 @@ export default function App() {
             {selectedObject && (
               <div className="space-y-3 text-xs">
                 <input value={selectedObject.label} onChange={(e) => updateSelectedObject({ label: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300" />
+                <select
+                  value={selectedObject.type}
+                  onChange={(e) => {
+                    const type = e.target.value as TrapObjectType;
+                    const preset = objectPreset(type);
+                    updateSelectedObject({
+                      type,
+                      width: preset.width,
+                      height: preset.height,
+                      y: preset.y,
+                      initiallyActive: preset.initiallyActive,
+                    });
+                  }}
+                  className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300"
+                >
+                  {objectCatalog.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
+                </select>
                 <div className="grid grid-cols-2 gap-2">
                   <NumberField label="X" value={selectedObject.x} min={0} max={800} onChange={(x) => updateSelectedObject({ x })} />
                   <NumberField label="Y" value={selectedObject.y} min={0} max={328} onChange={(y) => updateSelectedObject({ y })} />
@@ -717,6 +878,24 @@ export default function App() {
                   <input type="checkbox" checked={selectedObject.initiallyActive} onChange={(e) => updateSelectedObject({ initiallyActive: e.target.checked })} />
                   Active on start
                 </label>
+                <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">Linked triggers</div>
+                  {linkedTriggers.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {linkedTriggers.map((trigger) => (
+                        <button
+                          key={trigger.id}
+                          onClick={() => setSelectedEntityId(trigger.id)}
+                          className="w-full text-left px-2 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 cursor-pointer"
+                        >
+                          {trigger.label} - {trigger.action}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-zinc-600">No trigger linked to this object yet.</p>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={duplicateSelected} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                     <Copy className="w-3.5 h-3.5" />
@@ -747,6 +926,15 @@ export default function App() {
                   <option value="door">Door</option>
                   {config.objects.map((object) => <option key={object.id} value={object.id}>{object.label}</option>)}
                 </select>
+                <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Linked target</div>
+                  <button
+                    onClick={() => setSelectedEntityId(selectedTrigger.targetId)}
+                    className="w-full text-left px-2 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 cursor-pointer"
+                  >
+                    {triggerTargetLabel(config, selectedTrigger)}
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={duplicateSelected} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                     <Copy className="w-3.5 h-3.5" />
