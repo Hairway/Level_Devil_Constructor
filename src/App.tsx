@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AnalyticsEvent,
+  CollisionRole,
   EditorMode,
   EditorTool,
   GameConfig,
   LevelObject,
+  MotionMode,
+  ObjectActionKind,
   PlayableProject,
   PlayableRun,
   TrapObjectType,
   TriggerZone,
 } from './types';
 import LevelDevilGame from './components/LevelDevilGame';
+import { defaultAction, defaultMotion, objectCatalog, objectMotion, objectPreset } from './objectModel';
 import { generateStandalonePlayable } from './exportPlayable';
 import {
   ArrowDown,
@@ -35,88 +39,12 @@ import {
 } from 'lucide-react';
 
 const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
-const STORAGE_KEY = 'level-devil-constructor-state-v2';
+const STORAGE_KEY = 'level-devil-constructor-state-v3';
 
-const objectCatalog: Array<{
-  type: TrapObjectType;
-  label: string;
-  width: number;
-  height: number;
-  y: number;
-  initiallyActive: boolean;
-}> = [
-  { type: 'spike', label: 'Spike', width: 30, height: 22, y: 281, initiallyActive: true },
-  { type: 'saw', label: 'Saw', width: 36, height: 36, y: 244, initiallyActive: false },
-  { type: 'pit', label: 'Opening Pit', width: 90, height: 42, y: 281, initiallyActive: false },
-  { type: 'fallingBlock', label: 'Falling Block', width: 54, height: 44, y: 84, initiallyActive: false },
-  { type: 'crusher', label: 'Crusher', width: 58, height: 96, y: 160, initiallyActive: false },
-  { type: 'laser', label: 'Laser Beam', width: 130, height: 14, y: 212, initiallyActive: false },
-];
-
-const objectPreset = (type: TrapObjectType) =>
-  objectCatalog.find((item) => item.type === type) || objectCatalog[0];
-
+// Clean build playable: just the spike-gate + chasing door scenario (no experimental traps).
 const baseObjects = (): LevelObject[] => [
-  {
-    id: 'spike-a',
-    type: 'spike',
-    x: 300,
-    y: 281,
-    width: 30,
-    height: 22,
-    label: 'First spike',
-    initiallyActive: true,
-  },
-  {
-    id: 'spike-b',
-    type: 'spike',
-    x: 420,
-    y: 281,
-    width: 30,
-    height: 22,
-    label: 'Second spike',
-    initiallyActive: true,
-  },
-  {
-    id: 'pit-a',
-    type: 'pit',
-    x: 520,
-    y: 281,
-    width: 90,
-    height: 42,
-    label: 'Opening pit',
-    initiallyActive: false,
-  },
-  {
-    id: 'saw-a',
-    type: 'saw',
-    x: 650,
-    y: 244,
-    width: 36,
-    height: 36,
-    label: 'Hidden saw',
-    initiallyActive: false,
-  },
-  {
-    id: 'falling-block-a',
-    type: 'fallingBlock',
-    x: 570,
-    y: 84,
-    width: 54,
-    height: 44,
-    label: 'Falling block',
-    initiallyActive: false,
-  },
-  {
-    id: 'laser-a',
-    type: 'laser',
-    x: 570,
-    y: 212,
-    width: 130,
-    height: 14,
-    label: 'Laser beam',
-    initiallyActive: false,
-  },
+  { id: 'spike-a', type: 'spike', x: 300, y: 281, width: 30, height: 22, label: 'First spike', initiallyActive: true },
+  { id: 'spike-b', type: 'spike', x: 420, y: 281, width: 30, height: 22, label: 'Second spike', initiallyActive: true },
 ];
 
 const baseTriggers = (): TriggerZone[] => [
@@ -130,45 +58,64 @@ const baseTriggers = (): TriggerZone[] => [
     action: 'startDoorChase',
     label: 'Door chase trigger',
   },
-  {
-    id: 'pit-trigger',
-    x: 380,
-    y: 170,
-    width: 70,
-    height: 110,
-    targetId: 'pit-a',
-    action: 'openPit',
-    label: 'Pit trigger',
-  },
-  {
-    id: 'block-trigger',
-    x: 610,
-    y: 170,
-    width: 60,
-    height: 110,
-    targetId: 'falling-block-a',
-    action: 'activate',
-    label: 'Falling block trigger',
-  },
 ];
 
-const createDefaultConfig = (): GameConfig => {
-  const objects = baseObjects();
-  return {
-    playerSpeed: 3.5,
-    jumpForce: 11,
-    gravity: 0.7,
-    doorBaseSpeed: 2.5,
-    doorAccelSpeed: 6,
-    doorHoming: 0.25,
-    triggerDistance: 260,
-    skipButtonDelay: 1.8,
-    spikes: objects.filter((object) => object.type === 'spike').map((object) => object.x),
-    playerSpawnX: 90,
-    doorSpawnX: 720,
-    objects,
-    triggers: baseTriggers(),
-  };
+const baseTuning = () => ({
+  playerSpeed: 3.5,
+  jumpForce: 11,
+  gravity: 0.7,
+  doorBaseSpeed: 2.5,
+  doorAccelSpeed: 6,
+  doorHoming: 0.25,
+  triggerDistance: 260,
+  skipButtonDelay: 1.8,
+  playerSpawnX: 90,
+  doorSpawnX: 720,
+});
+
+const configFrom = (objects: LevelObject[], triggers: TriggerZone[]): GameConfig => ({
+  ...baseTuning(),
+  spikes: objects.filter((object) => object.type === 'spike').map((object) => object.x),
+  objects,
+  triggers,
+});
+
+const createDefaultConfig = (): GameConfig => configFrom(baseObjects(), baseTriggers());
+
+// Sandbox playable showcasing every object type and the new behaviours (kept out of the build).
+const createTestConfig = (): GameConfig => {
+  const objects: LevelObject[] = [
+    { id: 'spike-1', type: 'spike', x: 260, y: 281, width: 30, height: 22, label: 'Spike', initiallyActive: true, role: 'hazard' },
+    {
+      id: 'pit-split', type: 'pit', x: 430, y: 281, width: 110, height: 42, label: 'Splitting pit',
+      initiallyActive: false, role: 'pit',
+    },
+    {
+      id: 'saw-chase', type: 'saw', x: 640, y: 150, width: 40, height: 40, label: 'Chasing saw',
+      initiallyActive: false, role: 'hazard',
+      motion: { ...defaultMotion(), mode: 'chase', target: 'player', speed: 2.4, startOn: 'trigger' },
+    },
+    {
+      id: 'laser-sweep', type: 'laser', x: 400, y: 150, width: 130, height: 12, label: 'Sweeping laser',
+      initiallyActive: true, role: 'hazard',
+      motion: { ...defaultMotion(), mode: 'linear', speed: 1.6, dirX: 0, dirY: 1, distance: 90, loop: true },
+    },
+    {
+      id: 'plat-fall', type: 'platform', x: 560, y: 90, width: 90, height: 18, label: 'Falling platform',
+      initiallyActive: false, role: 'solid',
+      motion: { ...defaultMotion(), mode: 'fall', startOn: 'trigger' },
+    },
+    {
+      id: 'btn-skip', type: 'button', x: 150, y: 150, width: 70, height: 30, label: 'Skip',
+      initiallyActive: true, role: 'decor', clickable: true, appearDelay: 1.5,
+      action: { kind: 'splitFloor', targetId: 'pit-split' },
+    },
+  ];
+  const triggers: TriggerZone[] = [
+    { id: 'tz-saw', x: 540, y: 170, width: 60, height: 110, targetId: 'saw-chase', action: 'activate', label: 'Wake saw' },
+    { id: 'tz-plat', x: 480, y: 60, width: 70, height: 90, targetId: 'plat-fall', action: 'activate', label: 'Drop platform' },
+  ];
+  return configFrom(objects, triggers);
 };
 
 const cloneConfig = (config: GameConfig): GameConfig => ({
@@ -225,6 +172,15 @@ const createInitialProject = (): PlayableProject => {
   };
 };
 
+// Separate sandbox project so experimental traps never leak into the build playable.
+const createTestProject = (): PlayableProject => ({
+  id: 'level-devil-test-001',
+  name: 'Test Playable',
+  runs: [createRun('Sandbox', createTestConfig())],
+});
+
+const createDefaultProjects = (): PlayableProject[] => [createInitialProject(), createTestProject()];
+
 const normalizeProject = (raw: Partial<PlayableProject>, index = 0): PlayableProject => ({
   id: raw.id || makeId('playable'),
   name: raw.name || `Level_Devil_play${String(index + 1).padStart(3, '0')}_01`,
@@ -238,15 +194,15 @@ const normalizeProject = (raw: Partial<PlayableProject>, index = 0): PlayablePro
 });
 
 const loadSavedProjects = (): PlayableProject[] => {
-  if (typeof window === 'undefined') return [createInitialProject()];
+  if (typeof window === 'undefined') return createDefaultProjects();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [createInitialProject()];
+    if (!raw) return createDefaultProjects();
     const parsed = JSON.parse(raw) as Partial<PlayableProject>[] | Partial<PlayableProject>;
     const projects = Array.isArray(parsed) ? parsed.map(normalizeProject) : [normalizeProject(parsed)];
-    return projects.length > 0 ? projects : [createInitialProject()];
+    return projects.length > 0 ? projects : createDefaultProjects();
   } catch {
-    return [createInitialProject()];
+    return createDefaultProjects();
   }
 };
 
@@ -263,6 +219,68 @@ const triggerTargetLabel = (config: GameConfig, trigger: TriggerZone) => {
   if (trigger.targetId === 'door') return 'Door';
   return config.objects.find((object) => object.id === trigger.targetId)?.label || trigger.targetId;
 };
+
+// Reusable inputs at module scope so React keeps them mounted (otherwise typing loses focus).
+const inputClass = 'w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 font-mono';
+
+const NumberField = ({ label, value, min, max, step = 1, onChange }: {
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) => (
+  <label className="block">
+    <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">{label}</span>
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={Number.isFinite(value) ? value : 0}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className={inputClass}
+    />
+  </label>
+);
+
+const SelectField = <T extends string>({ label, value, options, onChange }: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) => (
+  <label className="block">
+    <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">{label}</span>
+    <select value={value} onChange={(e) => onChange(e.target.value as T)} className={`${inputClass} text-xs`}>
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+  </label>
+);
+
+const MOTION_MODES: Array<{ value: MotionMode; label: string }> = [
+  { value: 'static', label: 'Static' },
+  { value: 'linear', label: 'Linear (direction)' },
+  { value: 'chase', label: 'Chase target' },
+  { value: 'fall', label: 'Fall' },
+];
+const ROLE_OPTIONS: Array<{ value: CollisionRole; label: string }> = [
+  { value: 'hazard', label: 'Hazard (kills)' },
+  { value: 'solid', label: 'Solid (platform)' },
+  { value: 'pit', label: 'Pit (hole)' },
+  { value: 'decor', label: 'Decor (no collision)' },
+];
+const ACTION_OPTIONS: Array<{ value: ObjectActionKind; label: string }> = [
+  { value: 'none', label: 'None' },
+  { value: 'activate', label: 'Activate target' },
+  { value: 'openPit', label: 'Open pit' },
+  { value: 'splitFloor', label: 'Split floor open' },
+  { value: 'collapseFloor', label: 'Collapse whole floor' },
+  { value: 'startDoorChase', label: 'Start door chase' },
+  { value: 'nextRun', label: 'Skip to next run' },
+  { value: 'redirectCTA', label: 'Redirect to CTA' },
+];
 
 export default function App() {
   const [projects, setProjects] = useState<PlayableProject[]>(loadSavedProjects);
@@ -547,35 +565,25 @@ export default function App() {
   const selectedObject = config.objects.find((object) => object.id === selectedEntityId);
   const selectedTrigger = config.triggers.find((trigger) => trigger.id === selectedEntityId);
   const linkedTriggers = selectedObject ? config.triggers.filter((trigger) => trigger.targetId === selectedObject.id) : [];
+  const selObjMotion = selectedObject ? objectMotion(selectedObject) : null;
+  const selObjAction = selectedObject?.action || defaultAction();
+  const actionTargetOptions: Array<{ value: string; label: string }> = [
+    { value: 'door', label: 'Door' },
+    ...config.objects.filter((object) => object.id !== selectedEntityId).map((object) => ({ value: object.id, label: object.label })),
+  ];
+  const updateSelectedMotion = (patch: Partial<NonNullable<LevelObject['motion']>>) => {
+    if (!selectedObject) return;
+    updateSelectedObject({ motion: { ...objectMotion(selectedObject), ...patch } });
+  };
+  const updateSelectedAction = (patch: Partial<NonNullable<LevelObject['action']>>) => {
+    if (!selectedObject) return;
+    updateSelectedObject({ action: { ...(selectedObject.action || defaultAction()), ...patch } });
+  };
   const selectedSpecialX = selectedEntityId === 'playerSpawn'
     ? config.playerSpawnX
     : selectedEntityId === 'door'
       ? config.doorSpawnX
       : null;
-  const numberClass = 'w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 font-mono';
-
-  const NumberField = ({ label, value, min, max, step = 1, onChange }: {
-    label: string;
-    value: number;
-    min?: number;
-    max?: number;
-    step?: number;
-    onChange: (value: number) => void;
-  }) => (
-    <label className="block">
-      <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">{label}</span>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className={numberClass}
-      />
-    </label>
-  );
-
   const toolButtons: Array<{ id: EditorTool; label: string }> = [
     { id: 'select', label: 'Select' },
     ...objectCatalog.map((item) => ({ id: item.type, label: item.label })),
@@ -878,6 +886,86 @@ export default function App() {
                   <input type="checkbox" checked={selectedObject.initiallyActive} onChange={(e) => updateSelectedObject({ initiallyActive: e.target.checked })} />
                   Active on start
                 </label>
+
+                <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Collision &amp; appearance</div>
+                  <SelectField
+                    label="Collision role"
+                    value={(selectedObject.role || objectPreset(selectedObject.type).role)}
+                    options={ROLE_OPTIONS}
+                    onChange={(role) => updateSelectedObject({ role: role as CollisionRole })}
+                  />
+                  <NumberField label="Appear delay (s)" value={selectedObject.appearDelay || 0} min={0} max={10} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
+                  <label className="block">
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Custom sprite URL</span>
+                    <input
+                      value={selectedObject.spriteUrl || ''}
+                      placeholder="https://... or Drive image link"
+                      onChange={(e) => updateSelectedObject({ spriteUrl: e.target.value || undefined })}
+                      className={`${inputClass} text-[10px]`}
+                    />
+                  </label>
+                </div>
+
+                {selObjMotion && (
+                  <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500">Motion</div>
+                    <SelectField label="Mode" value={selObjMotion.mode} options={MOTION_MODES} onChange={(mode) => updateSelectedMotion({ mode: mode as MotionMode })} />
+                    {selObjMotion.mode !== 'static' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <NumberField label="Speed" value={selObjMotion.speed} min={0} max={12} step={0.1} onChange={(speed) => updateSelectedMotion({ speed })} />
+                        <NumberField label="Start delay (s)" value={selObjMotion.delay} min={0} max={10} step={0.1} onChange={(delay) => updateSelectedMotion({ delay })} />
+                      </div>
+                    )}
+                    {selObjMotion.mode === 'chase' && (
+                      <SelectField
+                        label="Chase target"
+                        value={selObjMotion.target}
+                        options={[{ value: 'player', label: 'Player' }, { value: 'door', label: 'Door' }]}
+                        onChange={(target) => updateSelectedMotion({ target: target as 'player' | 'door' })}
+                      />
+                    )}
+                    {selObjMotion.mode === 'linear' && (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <NumberField label="Dir X (-1..1)" value={selObjMotion.dirX} min={-1} max={1} step={0.1} onChange={(dirX) => updateSelectedMotion({ dirX })} />
+                          <NumberField label="Dir Y (-1..1)" value={selObjMotion.dirY} min={-1} max={1} step={0.1} onChange={(dirY) => updateSelectedMotion({ dirY })} />
+                        </div>
+                        <NumberField label="Max distance (0=∞)" value={selObjMotion.distance} min={0} max={800} step={5} onChange={(distance) => updateSelectedMotion({ distance })} />
+                        <label className="flex items-center gap-2 text-zinc-400">
+                          <input type="checkbox" checked={selObjMotion.loop} onChange={(e) => updateSelectedMotion({ loop: e.target.checked })} />
+                          Loop back and forth
+                        </label>
+                      </>
+                    )}
+                    {selObjMotion.mode !== 'static' && (
+                      <SelectField
+                        label="Starts"
+                        value={selObjMotion.startOn}
+                        options={[{ value: 'spawn', label: 'On spawn' }, { value: 'trigger', label: 'When triggered/activated' }]}
+                        onChange={(startOn) => updateSelectedMotion({ startOn: startOn as 'spawn' | 'trigger' })}
+                      />
+                    )}
+                  </div>
+                )}
+
+                <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Action</div>
+                  <SelectField label="Does" value={selObjAction.kind} options={ACTION_OPTIONS} onChange={(kind) => updateSelectedAction({ kind: kind as ObjectActionKind })} />
+                  {selObjAction.kind !== 'none' && !['collapseFloor', 'nextRun', 'redirectCTA'].includes(selObjAction.kind) && (
+                    <SelectField label="On target" value={selObjAction.targetId} options={actionTargetOptions} onChange={(targetId) => updateSelectedAction({ targetId })} />
+                  )}
+                  <label className="flex items-center gap-2 text-zinc-400">
+                    <input type="checkbox" checked={!!selectedObject.clickable} onChange={(e) => updateSelectedObject({ clickable: e.target.checked })} />
+                    Clickable (tap fires action)
+                  </label>
+                  <p className="text-[10px] text-zinc-600">
+                    {selectedObject.clickable
+                      ? 'Player taps this object to fire the action.'
+                      : 'Action fires when the player touches this object.'}
+                  </p>
+                </div>
+
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">Linked triggers</div>
                   {linkedTriggers.length > 0 ? (
@@ -917,15 +1005,20 @@ export default function App() {
                   <NumberField label="Width" value={selectedTrigger.width} min={10} max={260} onChange={(width) => updateSelectedTrigger({ width })} />
                   <NumberField label="Height" value={selectedTrigger.height} min={10} max={260} onChange={(height) => updateSelectedTrigger({ height })} />
                 </div>
-                <select value={selectedTrigger.action} onChange={(e) => updateSelectedTrigger({ action: e.target.value as TriggerZone['action'] })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300">
-                  <option value="activate">Activate object</option>
-                  <option value="openPit">Open pit</option>
-                  <option value="startDoorChase">Start door chase</option>
-                </select>
-                <select value={selectedTrigger.targetId} onChange={(e) => updateSelectedTrigger({ targetId: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300">
-                  <option value="door">Door</option>
-                  {config.objects.map((object) => <option key={object.id} value={object.id}>{object.label}</option>)}
-                </select>
+                <SelectField
+                  label="Action"
+                  value={selectedTrigger.action}
+                  options={ACTION_OPTIONS.filter((option) => option.value !== 'none') as Array<{ value: TriggerZone['action']; label: string }>}
+                  onChange={(action) => updateSelectedTrigger({ action })}
+                />
+                {!['collapseFloor', 'nextRun', 'redirectCTA'].includes(selectedTrigger.action) && (
+                  <SelectField
+                    label="Target"
+                    value={selectedTrigger.targetId}
+                    options={[{ value: 'door', label: 'Door' }, ...config.objects.map((object) => ({ value: object.id, label: object.label }))]}
+                    onChange={(targetId) => updateSelectedTrigger({ targetId })}
+                  />
+                )}
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Linked target</div>
                   <button

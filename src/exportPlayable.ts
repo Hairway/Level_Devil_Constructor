@@ -77,29 +77,41 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
   <script>
     const PROJECT = ${safeProjectJson(project)};
     const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
-    const VIEW_W = 800, VIEW_H = 328, GROUND_Y = 280, PLAYER_H = 36;
-    const COL_BG = 0xc77b00, COL_BAND = 0xe2a33c, COL_HI = 0xeab451, COL_INK = 0x231708;
+    const VIEW_W = 800, VIEW_H = 328, GROUND_Y = 280, PLAYER_H = 36, DOOR_CY = -28;
+    const COL_BG = 0xc77b00, COL_BAND = 0xe2a33c, COL_HI = 0xeab451, COL_INK = 0x231708, COL_BTN = 0xffc164;
     const app = new PIXI.Application({ width: VIEW_W, height: VIEW_H, backgroundColor: COL_BG, antialias: false });
     document.getElementById('level').appendChild(app.view);
     const g = new PIXI.Graphics();
-    app.stage.addChild(g);
+    const spriteLayer = new PIXI.Container();
+    app.stage.addChild(g, spriteLayer);
+    app.stage.eventMode = 'static';
+    app.stage.hitArea = app.screen;
+    const spriteCache = new Map();
     const keys = {};
-    let runIndex = 0, run, config, player, door, activeIds, firedIds, objectRuntime, doorTriggered, doorTimer, doorVx, doorVy, dead, skipActive, skipClicked, floorCollapsed;
+    let runIndex = 0, run, config, player, door, activeIds, firedIds, motionRunIds, splitIds, objectRuntime, doorTriggered, doorTimer, doorVx, doorVy, dead, skipActive, skipClicked, floorCollapsed;
 
-    const clamp = (v,min,max) => Math.max(min, Math.min(max, v));
-    const overlap = (a,b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-    const objectRect = o => {
-      const rt = objectRuntime.get(o.id) || o;
-      if (o.type === 'spike' || o.type === 'pit') return { x: rt.x - o.width / 2, y: rt.y - o.height, w: o.width, h: o.height };
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    const isBottom = (t) => t === 'spike' || t === 'pit';
+    const ROLE = { spike: 'hazard', saw: 'hazard', fallingBlock: 'hazard', crusher: 'hazard', laser: 'hazard', pit: 'pit', platform: 'solid', button: 'decor' };
+    const roleOf = (o) => o.role || ROLE[o.type] || 'decor';
+    const motionOf = (o) => o.motion || (o.type === 'fallingBlock'
+      ? { mode: 'fall', target: 'player', speed: 2, dirX: 1, dirY: 0, distance: 0, loop: false, startOn: 'trigger', delay: 0 }
+      : { mode: 'static', target: 'player', speed: 2, dirX: 1, dirY: 0, distance: 0, loop: false, startOn: 'spawn', delay: 0 });
+    const rtOf = (id) => objectRuntime.get(id);
+    const objectRect = (o) => {
+      const rt = rtOf(o.id) || o;
+      if (isBottom(o.type)) return { x: rt.x - o.width / 2, y: rt.y - o.height, w: o.width, h: o.height };
       return { x: rt.x - o.width / 2, y: rt.y - o.height / 2, w: o.width, h: o.height };
     };
+
     const title = document.getElementById('title');
     const dots = document.getElementById('dots');
     const skip = document.getElementById('skip');
     const cta = document.getElementById('cta');
 
     function openStore() {
-      try { if (window.mraid && window.mraid.open) return window.mraid.open(STORE_URL); } catch(e) {}
+      try { if (window.mraid && window.mraid.open) return window.mraid.open(STORE_URL); } catch (e) {}
       window.open(STORE_URL, '_blank');
     }
 
@@ -115,25 +127,41 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       door = { x: config.doorSpawnX, y: GROUND_Y };
       activeIds = new Set(config.objects.filter(o => o.initiallyActive).map(o => o.id));
       firedIds = new Set();
-      objectRuntime = new Map(config.objects.map(o => [o.id, { x: o.x, y: o.y, vy: 0 }]));
+      splitIds = new Set();
+      motionRunIds = new Set(config.objects.filter(o => motionOf(o).startOn === 'spawn').map(o => o.id));
+      objectRuntime = new Map(config.objects.map(o => [o.id, { x: o.x, y: o.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 }]));
       doorTriggered = runIndex === 2;
       doorTimer = 0; doorVx = 0; doorVy = 0; dead = false; skipActive = false; skipClicked = false; floorCollapsed = false;
       skip.style.display = 'none';
       cta.style.display = 'none';
       title.textContent = runIndex === 2 ? 'TRY NEW DOOR' : 'REACH THE DOOR';
       dots.innerHTML = Array.from({ length: 5 }, (_, i) => '<i class="' + (i <= runIndex ? 'filled' : '') + '"></i>').join('');
+      spriteCache.forEach(s => s.destroy());
+      spriteCache.clear();
+      spriteLayer.removeChildren();
       draw();
+    }
+
+    function ensureRt(id) {
+      const o = config.objects.find(x => x.id === id);
+      if (o && !objectRuntime.has(id)) objectRuntime.set(id, { x: o.x, y: o.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 });
+    }
+
+    function runAction(kind, targetId) {
+      if (kind === 'none') return;
+      if (kind === 'startDoorChase') { doorTriggered = true; return; }
+      if (kind === 'collapseFloor') { floorCollapsed = true; return; }
+      if (kind === 'nextRun') { loadRun(runIndex + 1); return; }
+      if (kind === 'redirectCTA') { cta.style.display = 'flex'; dead = true; return; }
+      if (kind === 'splitFloor') { activeIds.add(targetId); splitIds.add(targetId); motionRunIds.add(targetId); ensureRt(targetId); return; }
+      if (kind === 'openPit') { activeIds.add(targetId); ensureRt(targetId); return; }
+      activeIds.add(targetId); motionRunIds.add(targetId); ensureRt(targetId);
     }
 
     function activateTrigger(trigger) {
       if (firedIds.has(trigger.id)) return;
       firedIds.add(trigger.id);
-      if (trigger.action === 'startDoorChase') doorTriggered = true;
-      else {
-        activeIds.add(trigger.targetId);
-        const target = config.objects.find(o => o.id === trigger.targetId);
-        if (target && !objectRuntime.has(target.id)) objectRuntime.set(target.id, { x: target.x, y: target.y, vy: 0 });
-      }
+      runAction(trigger.action, trigger.targetId);
     }
 
     function die(cause) {
@@ -169,44 +197,86 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
     }
 
     function drawObject(object) {
+      if (object.type === 'pit') return; // pits are rendered by the floor
+      const rt = rtOf(object.id);
       const active = activeIds.has(object.id) || object.initiallyActive;
-      if (!active && object.type !== 'pit') return;
-      const rt = objectRuntime.get(object.id) || object;
+      const appeared = rt ? rt.since >= (object.appearDelay || 0) : true;
+      if (!active || !appeared) return;
+      if (object.spriteUrl) return; // drawn by the sprite layer
+      const p = rt || object;
       if (object.type === 'spike') {
         g.beginFill(COL_INK);
-        for (let x = rt.x - object.width / 2; x < rt.x + object.width / 2; x += object.width / 3) {
-          g.drawPolygon([x, rt.y, x + object.width / 6, rt.y - object.height, x + object.width / 3, rt.y]);
+        for (let x = p.x - object.width / 2; x < p.x + object.width / 2; x += object.width / 3) {
+          g.drawPolygon([x, p.y, x + object.width / 6, p.y - object.height, x + object.width / 3, p.y]);
         }
         g.endFill();
       } else if (object.type === 'saw') {
-        g.beginFill(0x8a1f10, active ? 1 : .45);
-        g.drawCircle(rt.x, rt.y, object.width / 2);
+        g.beginFill(0x8a1f10);
+        g.drawCircle(p.x, p.y, object.width / 2);
         g.endFill();
         g.lineStyle(3, COL_INK, .8);
-        g.drawCircle(rt.x, rt.y, object.width / 3);
+        g.drawCircle(p.x, p.y, object.width / 3);
       } else if (object.type === 'fallingBlock') {
-        g.beginFill(0x5b3410, active ? 1 : .42);
-        g.lineStyle(3, COL_INK, active ? .85 : .35);
-        g.drawRect(rt.x - object.width / 2, rt.y - object.height / 2, object.width, object.height);
+        g.beginFill(0x5b3410);
+        g.lineStyle(3, COL_INK, .85);
+        g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
       } else if (object.type === 'crusher') {
-        g.beginFill(0x3b2611, active ? 1 : .45);
-        g.lineStyle(3, 0x8a1f10, active ? .9 : .35);
-        g.drawRect(rt.x - object.width / 2, rt.y - object.height / 2, object.width, object.height);
+        g.beginFill(0x3b2611);
+        g.lineStyle(3, 0x8a1f10, .9);
+        g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
-        g.beginFill(0x8a1f10, active ? 1 : .35);
-        for (let x = rt.x - object.width / 2; x < rt.x + object.width / 2; x += object.width / 4) {
-          g.drawPolygon([x, rt.y + object.height / 2, x + object.width / 8, rt.y + object.height / 2 + 13, x + object.width / 4, rt.y + object.height / 2]);
+        g.beginFill(0x8a1f10);
+        for (let x = p.x - object.width / 2; x < p.x + object.width / 2; x += object.width / 4) {
+          g.drawPolygon([x, p.y + object.height / 2, x + object.width / 8, p.y + object.height / 2 + 13, x + object.width / 4, p.y + object.height / 2]);
         }
         g.endFill();
       } else if (object.type === 'laser') {
-        g.beginFill(0xfef08a, active ? .95 : .25);
-        g.drawRect(rt.x - object.width / 2, rt.y - object.height / 2, object.width, object.height);
+        g.beginFill(0xfef08a, .95);
+        g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
-        g.lineStyle(3, 0xef4444, active ? .85 : .25);
-        g.moveTo(rt.x - object.width / 2, rt.y);
-        g.lineTo(rt.x + object.width / 2, rt.y);
+        g.lineStyle(3, 0xef4444, .85);
+        g.moveTo(p.x - object.width / 2, p.y);
+        g.lineTo(p.x + object.width / 2, p.y);
+      } else if (object.type === 'platform') {
+        g.beginFill(0xb37111);
+        g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
+        g.endFill();
+        g.beginFill(0xeab451, .85);
+        g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, 4);
+        g.endFill();
+        g.lineStyle(2, COL_INK, .7);
+        g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
+      } else if (object.type === 'button') {
+        g.beginFill(COL_BTN);
+        g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
+        g.endFill();
+        g.beginFill(0xb37111);
+        g.drawRect(p.x - object.width / 2, p.y + object.height / 2 - 6, object.width, 6);
+        g.endFill();
       }
+    }
+
+    function syncSprites() {
+      config.objects.forEach(o => {
+        if (!o.spriteUrl) return;
+        const rt = rtOf(o.id);
+        const active = activeIds.has(o.id) || o.initiallyActive;
+        const appeared = rt ? rt.since >= (o.appearDelay || 0) : true;
+        let s = spriteCache.get(o.id);
+        if (active && appeared) {
+          if (!s) {
+            s = PIXI.Sprite.from(o.spriteUrl);
+            s.anchor.set(0.5, isBottom(o.type) ? 1 : 0.5);
+            spriteLayer.addChild(s);
+            spriteCache.set(o.id, s);
+          }
+          const p = rt || o;
+          s.visible = true; s.width = o.width; s.height = o.height; s.x = p.x; s.y = p.y;
+        } else if (s) {
+          s.visible = false;
+        }
+      });
     }
 
     function draw() {
@@ -221,8 +291,12 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       g.drawRect(0, GROUND_Y + 8, VIEW_W, VIEW_H - GROUND_Y - 8);
       g.endFill();
       config.objects.filter(o => o.type === 'pit' && activeIds.has(o.id)).forEach(pit => {
+        const rt = rtOf(pit.id);
+        const prog = splitIds.has(pit.id) ? (rt ? rt.split : 0) : 1;
+        const hw = pit.width * Math.max(0, Math.min(1, prog));
+        if (hw <= 0) return;
         g.beginFill(COL_BG);
-        g.drawRect(pit.x - pit.width / 2, GROUND_Y - 2, pit.width, VIEW_H - GROUND_Y + 16);
+        g.drawRect(pit.x - hw / 2, GROUND_Y - 2, hw, VIEW_H - GROUND_Y + 16);
         g.endFill();
       });
       if (floorCollapsed) {
@@ -233,6 +307,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       config.objects.forEach(drawObject);
       drawDoor();
       drawPlayer();
+      syncSprites();
     }
 
     function markInput() {
@@ -242,9 +317,27 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       }
     }
 
+    // tap clickable button objects to fire their action
+    app.stage.on('pointerdown', (e) => {
+      if (dead || !config) return;
+      const pos = e.data.getLocalPosition(app.stage);
+      for (const o of config.objects) {
+        if (!o.clickable || !o.action || o.action.kind === 'none') continue;
+        const rt = rtOf(o.id);
+        const active = activeIds.has(o.id) || o.initiallyActive;
+        const appeared = rt ? rt.since >= (o.appearDelay || 0) : true;
+        if (!active || !appeared) continue;
+        const r = objectRect(o);
+        if (pos.x >= r.x && pos.x <= r.x + r.w && pos.y >= r.y && pos.y <= r.y + r.h) {
+          runAction(o.action.kind, o.action.targetId);
+          break;
+        }
+      }
+    });
+
     window.addEventListener('keydown', e => {
       keys[e.code] = true;
-      if (['ArrowLeft','ArrowRight','KeyA','KeyD','Space','ArrowUp','KeyW'].includes(e.code)) markInput();
+      if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'ArrowUp', 'KeyW'].includes(e.code)) markInput();
     });
     window.addEventListener('keyup', e => delete keys[e.code]);
     document.querySelectorAll('[data-key]').forEach(btn => {
@@ -280,30 +373,87 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       player.y += player.vy * delta;
       if (player.y > VIEW_H + 40) return die('PIT');
 
-      const inPit = config.objects.some(o => o.type === 'pit' && activeIds.has(o.id) && player.x > o.x - o.width / 2 && player.x < o.x + o.width / 2 && player.y >= GROUND_Y - 4);
-      if (player.y >= GROUND_Y && !floorCollapsed && !inPit) {
-        player.y = GROUND_Y; player.vy = 0; player.grounded = true;
-      } else if (player.y >= GROUND_Y) player.grounded = false;
+      // land on solid platforms (one-way)
+      let landed = false;
+      config.objects.forEach(o => {
+        if (roleOf(o) !== 'solid') return;
+        if (!(activeIds.has(o.id) || o.initiallyActive)) return;
+        const r = objectRect(o);
+        const prevFoot = player.y - player.vy * delta;
+        if (player.vy >= 0 && player.x > r.x && player.x < r.x + r.w && prevFoot <= r.y + 2 && player.y >= r.y) {
+          player.y = r.y; player.vy = 0; player.grounded = true; landed = true;
+        }
+      });
+
+      const inPit = config.objects.some(o => {
+        if (o.type !== 'pit' || !activeIds.has(o.id)) return false;
+        const rt = rtOf(o.id);
+        const prog = splitIds.has(o.id) ? (rt ? rt.split : 0) : 1;
+        if (prog < 0.35) return false;
+        const hw = o.width * prog / 2;
+        return player.x > o.x - hw && player.x < o.x + hw && player.y >= GROUND_Y - 4;
+      });
+      if (!landed && player.y >= GROUND_Y) {
+        if (!floorCollapsed && !inPit) { player.y = GROUND_Y; player.vy = 0; player.grounded = true; }
+        else player.grounded = false;
+      }
+
+      // advance timers, reveal-on-delay, floor split and motion
+      config.objects.forEach(o => {
+        const active = activeIds.has(o.id) || o.initiallyActive;
+        if (!active) return;
+        const rt = rtOf(o.id);
+        if (!rt) return;
+        rt.since += delta / 60;
+        if (o.type === 'pit' && splitIds.has(o.id) && rt.split < 1) rt.split = Math.min(1, rt.split + delta / 24);
+        const m = motionOf(o);
+        if (!motionRunIds.has(o.id) || rt.since < m.delay) return;
+        if (m.mode === 'fall') {
+          rt.vy = Math.min(rt.vy + 0.62 * delta, 13);
+          rt.y = Math.min(rt.y + rt.vy * delta, GROUND_Y - o.height / 2 + 1);
+        } else if (m.mode === 'linear') {
+          const len = Math.hypot(m.dirX, m.dirY) || 1;
+          const sx = (m.dirX / len) * m.speed * rt.pong * delta;
+          const sy = (m.dirY / len) * m.speed * rt.pong * delta;
+          rt.x += sx; rt.y += sy; rt.traveled += Math.hypot(sx, sy);
+          if (m.distance > 0 && rt.traveled >= m.distance) {
+            if (m.loop) { rt.pong *= -1; rt.traveled = 0; } else { rt.pong = 0; }
+          }
+        } else if (m.mode === 'chase') {
+          const tx = m.target === 'door' ? door.x : player.x;
+          const ty = m.target === 'door' ? door.y + DOOR_CY : player.y - PLAYER_H / 2;
+          const dx = tx - rt.x, dy = ty - rt.y, d = Math.hypot(dx, dy) || 1;
+          const st = Math.min(m.speed * delta, d);
+          rt.x += dx / d * st; rt.y += dy / d * st;
+        }
+        rt.x = clamp(rt.x, 0, VIEW_W);
+        rt.y = clamp(rt.y, 0, GROUND_Y + 40);
+      });
 
       const pRect = { x: player.x - 10, y: player.y - PLAYER_H, w: 20, h: PLAYER_H };
       config.triggers.forEach(t => {
         if (overlap(pRect, { x: t.x, y: t.y, w: t.width, h: t.height })) activateTrigger(t);
       });
-      config.objects.forEach(o => {
-        if (o.type !== 'fallingBlock' || !activeIds.has(o.id)) return;
-        const rt = objectRuntime.get(o.id) || { x: o.x, y: o.y, vy: 0 };
-        rt.vy = Math.min(rt.vy + .62 * delta, 13);
-        rt.y = Math.min(rt.y + rt.vy * delta, GROUND_Y - o.height / 2 + 1);
-        objectRuntime.set(o.id, rt);
-      });
-      config.objects.forEach(o => {
+
+      for (const o of config.objects) {
         const active = activeIds.has(o.id) || o.initiallyActive;
-        if (!active) return;
-        if (o.type === 'spike' && Math.abs(player.x - o.x) < o.width / 2 && player.y > GROUND_Y - 12) die('SPIKE');
-        if (o.type === 'saw' && overlap(pRect, { x: o.x - o.width / 2, y: o.y - o.height / 2, w: o.width, h: o.height })) die('SAW');
-        if ((o.type === 'fallingBlock' || o.type === 'crusher') && overlap(pRect, objectRect(o))) die('CRUSH');
-        if (o.type === 'laser' && overlap(pRect, objectRect(o))) die('LASER');
-      });
+        if (!active) continue;
+        const rt = rtOf(o.id);
+        if ((o.appearDelay || 0) > 0 && rt && rt.since < o.appearDelay) continue;
+        const wr = objectRect(o);
+        const touch = overlap(pRect, wr);
+        if (touch && o.action && o.action.kind !== 'none' && !o.clickable) {
+          const k = 'obj:' + o.id;
+          if (!firedIds.has(k)) { firedIds.add(k); runAction(o.action.kind, o.action.targetId); }
+        }
+        if (roleOf(o) !== 'hazard') continue;
+        const cx = rt ? rt.x : o.x;
+        if (o.type === 'spike') {
+          if (Math.abs(player.x - cx) < o.width / 2 && player.y > GROUND_Y - 12) return die('SPIKE');
+          continue;
+        }
+        if (touch) return die(o.type === 'saw' ? 'SAW' : o.type === 'laser' ? 'LASER' : 'CRUSH');
+      }
 
       const hasDoorTrigger = config.triggers.some(t => t.action === 'startDoorChase');
       if (runIndex === 0 && !hasDoorTrigger && !doorTriggered && door.x - player.x < config.triggerDistance) doorTriggered = true;
@@ -319,7 +469,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
         doorVy = clamp((doorVy + Math.sign((player.y - 16) - (door.y - 28)) * config.doorHoming * delta) * .97, -speed, speed);
         door.x = clamp(door.x + doorVx * delta, 40, VIEW_W - 40);
         door.y = clamp(door.y + doorVy * delta, 40, GROUND_Y);
-        if (Math.hypot(door.x - player.x, door.y - 28 - (player.y - 16)) < 30) die('SAW');
+        if (Math.hypot(door.x - player.x, door.y - 28 - (player.y - 16)) < 30) return die('SAW');
       }
       draw();
     });

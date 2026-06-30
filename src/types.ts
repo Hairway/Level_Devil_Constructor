@@ -1,5 +1,45 @@
-export type TrapObjectType = 'spike' | 'saw' | 'pit' | 'fallingBlock' | 'crusher' | 'laser';
-export type TriggerAction = 'activate' | 'openPit' | 'startDoorChase';
+export type TrapObjectType =
+  | 'spike'
+  | 'saw'
+  | 'pit'
+  | 'fallingBlock'
+  | 'crusher'
+  | 'laser'
+  | 'platform'
+  | 'button';
+export type TriggerAction = 'activate' | 'openPit' | 'startDoorChase' | 'splitFloor' | 'collapseFloor' | 'nextRun' | 'redirectCTA';
+
+// How an object behaves over time once it is active.
+export type MotionMode = 'static' | 'linear' | 'chase' | 'fall';
+// How an object collides with the player.
+export type CollisionRole = 'hazard' | 'solid' | 'pit' | 'decor';
+// What an object/trigger does when fired (touch by player, or tap when clickable).
+export type ObjectActionKind =
+  | 'none'
+  | 'activate'
+  | 'openPit'
+  | 'splitFloor'
+  | 'startDoorChase'
+  | 'collapseFloor'
+  | 'nextRun'
+  | 'redirectCTA';
+
+export interface ObjectMotion {
+  mode: MotionMode;
+  target: 'player' | 'door'; // chase target
+  speed: number; // px per frame
+  dirX: number; // -1..1, used for linear
+  dirY: number; // -1..1, used for linear
+  distance: number; // max travel distance for linear (0 = infinite)
+  loop: boolean; // ping-pong back and forth for linear
+  startOn: 'spawn' | 'trigger';
+  delay: number; // seconds before the motion starts
+}
+
+export interface ObjectAction {
+  kind: ObjectActionKind;
+  targetId: string; // object id or 'door'
+}
 
 export interface LevelObject {
   id: string;
@@ -10,6 +50,13 @@ export interface LevelObject {
   height: number;
   label: string;
   initiallyActive: boolean;
+  // Optional flexible-entity fields (older configs work without them).
+  role?: CollisionRole;
+  motion?: ObjectMotion;
+  clickable?: boolean; // behaves like a button: tap fires `action`
+  action?: ObjectAction; // fired on tap (clickable) or on player touch
+  appearDelay?: number; // seconds before the object becomes visible/active in play
+  spriteUrl?: string; // custom image for loaded/imported objects
 }
 
 export interface TriggerZone {
@@ -59,5 +106,16 @@ export interface AnalyticsEvent {
 }
 
 export type EditorMode = 'play' | 'constructor';
-export type EditorTool = 'select' | 'spike' | 'saw' | 'pit' | 'fallingBlock' | 'crusher' | 'laser' | 'trigger' | 'erase';
+export type EditorTool =
+  | 'select'
+  | 'spike'
+  | 'saw'
+  | 'pit'
+  | 'fallingBlock'
+  | 'crusher'
+  | 'laser'
+  | 'platform'
+  | 'button'
+  | 'trigger'
+  | 'erase';
 export type ActiveRun = number;

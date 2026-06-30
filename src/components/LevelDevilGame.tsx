@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import * as PIXI from 'pixi.js';
-import { ActiveRun, EditorMode, EditorTool, GameConfig, LevelObject, TrapObjectType, TriggerZone } from '../types';
+import { ActiveRun, EditorMode, EditorTool, GameConfig, LevelObject, ObjectActionKind, TrapObjectType, TriggerZone } from '../types';
+import { effectiveRole, objectCatalog, objectMotion, objectPreset } from '../objectModel';
 import * as A from '../assets';
 
 const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
@@ -23,21 +24,18 @@ const COL_TRIGGER = 0x38bdf8;
 const COL_CONNECTOR = 0xfbbf24;
 
 type DeathCause = 'SAW' | 'SPIKE' | 'PIT' | 'CRUSH' | 'LASER' | 'REDIRECT';
-type ObjectRuntime = { x: number; y: number; vy: number };
+// Per-object runtime: live position, fall velocity, distance travelled (linear), ping-pong sign,
+// seconds since the object became active (drives motion delay + appearDelay), and floor-split progress.
+type ObjectRuntime = { x: number; y: number; vy: number; traveled: number; pong: number; since: number; split: number };
 
-const objectPresets: Record<TrapObjectType, { width: number; height: number; y: number; initiallyActive: boolean; label: string }> = {
-  spike: { width: 30, height: 22, y: GROUND_Y + 1, initiallyActive: true, label: 'Spike' },
-  saw: { width: 36, height: 36, y: GROUND_Y - 36, initiallyActive: false, label: 'Saw' },
-  pit: { width: 90, height: 42, y: GROUND_Y + 1, initiallyActive: false, label: 'Opening Pit' },
-  fallingBlock: { width: 54, height: 44, y: 84, initiallyActive: false, label: 'Falling Block' },
-  crusher: { width: 58, height: 96, y: 160, initiallyActive: false, label: 'Crusher' },
-  laser: { width: 130, height: 14, y: 212, initiallyActive: false, label: 'Laser Beam' },
-};
+const TRAP_TOOLS = new Set<TrapObjectType>(objectCatalog.map((item) => item.type));
+const isTrapTool = (tool: EditorTool): tool is TrapObjectType => TRAP_TOOLS.has(tool as TrapObjectType);
 
-const isTrapTool = (tool: EditorTool): tool is TrapObjectType => tool in objectPresets;
+// Objects anchored at their bottom edge (sit on the ground) vs centered.
+const isBottomAnchored = (type: TrapObjectType) => type === 'spike' || type === 'pit';
 
 const objectLocalRect = (object: LevelObject) => {
-  if (object.type === 'spike' || object.type === 'pit') {
+  if (isBottomAnchored(object.type)) {
     return { x: -object.width / 2, y: -object.height, w: object.width, h: object.height };
   }
   return { x: -object.width / 2, y: -object.height / 2, w: object.width, h: object.height };
@@ -84,6 +82,7 @@ export default function LevelDevilGame({
   const resetRef = useRef<() => void>(() => {});
   const triggerDeathRef = useRef<((cause: DeathCause) => void) | null>(null);
   const drawFloorRef = useRef<(collapsed: boolean) => void>(() => {});
+  const runActionRef = useRef<(kind: ObjectActionKind, targetId: string, label: string) => void>(() => {});
 
   const [isMuted, setIsMuted] = useState(false);
   const [isSkipVisible, setIsSkipVisible] = useState(false);
@@ -121,12 +120,17 @@ export default function LevelDevilGame({
     playerMoved: false,
     activeObjectIds: new Set<string>(),
     firedTriggerIds: new Set<string>(),
+    motionRunIds: new Set<string>(),
+    splitPitIds: new Set<string>(),
     objectRuntime: new Map<string, ObjectRuntime>(),
   });
 
   useEffect(() => {
     stateRef.current.config = cloneConfig(config);
-    redrawRef.current();
+    // While playing, a config swap (e.g. switching project/run) starts a fresh run so runtime
+    // state (motion, timers, active set) is rebuilt; in the editor we just redraw.
+    if (stateRef.current.editorMode === 'play') resetRef.current();
+    else redrawRef.current();
   }, [config]);
 
   useEffect(() => {
@@ -136,7 +140,9 @@ export default function LevelDevilGame({
 
   useEffect(() => {
     stateRef.current.editorMode = editorMode;
-    redrawRef.current();
+    // Entering Play always begins a clean run; entering the editor just redraws the scene.
+    if (editorMode === 'play') resetRef.current();
+    else redrawRef.current();
   }, [editorMode]);
 
   useEffect(() => {
@@ -290,6 +296,7 @@ export default function LevelDevilGame({
       | { kind: 'trigger'; id: string; dx: number; dy: number; display: PIXI.DisplayObject }
       | { kind: 'player'; dx: number; display: PIXI.DisplayObject }
       | { kind: 'door'; dx: number; display: PIXI.DisplayObject }
+      | { kind: 'link'; sourceKind: 'trigger' | 'object'; id: string; x: number; y: number }
       | null = null;
 
     const app = new PIXI.Application({
@@ -327,13 +334,14 @@ export default function LevelDevilGame({
     const connectorsLayer = new PIXI.Graphics();
     const objectsLayer = new PIXI.Container();
     const triggersLayer = new PIXI.Container();
+    const connectorHandles = new PIXI.Container();
     const doorContainer = new PIXI.Container();
     const player = new PIXI.Sprite(heroTex.idle);
     const doorSprite = new PIXI.Sprite(texDoorSafe);
     const doorEdge = new PIXI.Container();
 
     app.stage.addChild(world);
-    world.addChild(floorGraphics, connectorsLayer, objectsLayer, triggersLayer, doorContainer, player);
+    world.addChild(floorGraphics, connectorsLayer, objectsLayer, triggersLayer, connectorHandles, doorContainer, player);
     app.stage.eventMode = 'static';
     app.stage.hitArea = app.screen;
 
@@ -391,13 +399,25 @@ export default function LevelDevilGame({
       floorGraphics.drawRect(0, GROUND_Y + 8, VIEW_W, VIEW_H - GROUND_Y - 8);
       floorGraphics.endFill();
 
-      const activePits = stateRef.current.config.objects.filter(
-        (object) => object.type === 'pit' && stateRef.current.activeObjectIds.has(object.id),
+      const s = stateRef.current;
+      const activePits = s.config.objects.filter(
+        (object) => object.type === 'pit' && s.activeObjectIds.has(object.id),
       );
       activePits.forEach((pit) => {
+        // splitFloor pits open gradually (split 0->1); openPit pits open instantly
+        const progress = s.splitPitIds.has(pit.id) ? (s.objectRuntime.get(pit.id)?.split ?? 0) : 1;
+        const holeW = pit.width * Math.max(0, Math.min(1, progress));
+        if (holeW <= 0) return;
         floorGraphics.beginFill(COL_BG);
-        floorGraphics.drawRect(pit.x - pit.width / 2, GROUND_Y - 2, pit.width, VIEW_H - GROUND_Y + 16);
+        floorGraphics.drawRect(pit.x - holeW / 2, GROUND_Y - 2, holeW, VIEW_H - GROUND_Y + 16);
         floorGraphics.endFill();
+        // jagged broken edges on both sides of the gap for the "floor splitting" look
+        if (progress < 1 && s.splitPitIds.has(pit.id)) {
+          floorGraphics.beginFill(COL_BAND_HI, 0.8);
+          floorGraphics.drawRect(pit.x - holeW / 2 - 3, GROUND_Y - 4, 3, 8);
+          floorGraphics.drawRect(pit.x + holeW / 2, GROUND_Y - 4, 3, 8);
+          floorGraphics.endFill();
+        }
       });
 
       if (collapsed) {
@@ -411,7 +431,14 @@ export default function LevelDevilGame({
     const makeObjectSprite = (object: LevelObject) => {
       let display: PIXI.DisplayObject;
       const active = stateRef.current.activeObjectIds.has(object.id);
-      if (object.type === 'spike') {
+      if (object.spriteUrl) {
+        const sprite = new PIXI.Sprite(tex(object.spriteUrl));
+        sprite.anchor.set(0.5, isBottomAnchored(object.type) ? 1 : 0.5);
+        sprite.width = object.width;
+        sprite.height = object.height;
+        sprite.tint = active ? 0xffffff : 0x9a9a9a;
+        display = sprite;
+      } else if (object.type === 'spike') {
         const sprite = new PIXI.Sprite(texSpike);
         sprite.anchor.set(0.5, 1);
         sprite.tint = COL_INK;
@@ -451,7 +478,7 @@ export default function LevelDevilGame({
         }
         g.endFill();
         display = g;
-      } else {
+      } else if (object.type === 'laser') {
         const g = new PIXI.Graphics();
         g.beginFill(0xfef08a, active ? 0.95 : 0.25);
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
@@ -460,6 +487,38 @@ export default function LevelDevilGame({
         g.moveTo(-object.width / 2, 0);
         g.lineTo(object.width / 2, 0);
         display = g;
+      } else if (object.type === 'platform') {
+        const g = new PIXI.Graphics();
+        g.beginFill(0xb37111, active ? 1 : 0.45);
+        g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
+        g.endFill();
+        g.beginFill(0xeab451, active ? 0.85 : 0.3);
+        g.drawRect(-object.width / 2, -object.height / 2, object.width, 4);
+        g.endFill();
+        g.lineStyle(2, COL_INK, active ? 0.7 : 0.3);
+        g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
+        display = g;
+      } else {
+        // button: a chunky tappable panel with its label
+        const box = new PIXI.Container();
+        const g = new PIXI.Graphics();
+        g.beginFill(0xffc164, active ? 1 : 0.4);
+        g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
+        g.endFill();
+        g.beginFill(0xb37111, active ? 1 : 0.4);
+        g.drawRect(-object.width / 2, object.height / 2 - 6, object.width, 6);
+        g.endFill();
+        box.addChild(g);
+        const text = new PIXI.Text((object.label || 'BTN').toUpperCase(), {
+          fill: COL_INK,
+          fontSize: Math.min(12, object.height - 10),
+          fontFamily: 'monospace',
+          fontWeight: 'bold',
+        });
+        text.anchor.set(0.5);
+        text.resolution = 2;
+        box.addChild(text);
+        display = box;
       }
       const runtime = stateRef.current.editorMode === 'play' ? stateRef.current.objectRuntime.get(object.id) : undefined;
       display.x = runtime?.x ?? object.x;
@@ -467,24 +526,97 @@ export default function LevelDevilGame({
       return display;
     };
 
+    // Resolve where a link target sits on screen (object centre, or the door).
+    const targetPoint = (targetId: string) => {
+      const target = stateRef.current.config.objects.find((object) => object.id === targetId);
+      if (target) return { x: target.x, y: target.y - target.height / 2, label: target.label };
+      return { x: stateRef.current.config.doorSpawnX, y: GROUND_Y - DOOR_H / 2, label: 'Door' };
+    };
+
+    // One connector: a thick arrow from source -> target with an action label and a draggable end handle.
+    const drawConnector = (
+      sourceKind: 'trigger' | 'object',
+      id: string,
+      sx: number,
+      sy: number,
+      targetId: string,
+      action: string,
+      selected: boolean,
+    ) => {
+      const live = dragging && dragging.kind === 'link' && dragging.id === id ? { x: dragging.x, y: dragging.y } : null;
+      const tp = live || targetPoint(targetId);
+      const color = selected || live ? 0xffffff : COL_CONNECTOR;
+      connectorsLayer.lineStyle(selected || live ? 4 : 2.5, color, 0.95);
+      connectorsLayer.moveTo(sx, sy);
+      connectorsLayer.lineTo(tp.x, tp.y);
+
+      // arrowhead
+      const ang = Math.atan2(tp.y - sy, tp.x - sx);
+      const ah = 11;
+      connectorsLayer.beginFill(color, 1);
+      connectorsLayer.drawPolygon([
+        tp.x, tp.y,
+        tp.x - ah * Math.cos(ang - 0.4), tp.y - ah * Math.sin(ang - 0.4),
+        tp.x - ah * Math.cos(ang + 0.4), tp.y - ah * Math.sin(ang + 0.4),
+      ]);
+      connectorsLayer.endFill();
+
+      // action label at midpoint
+      const mid = { x: (sx + tp.x) / 2, y: (sy + tp.y) / 2 };
+      const tag = new PIXI.Text(action, {
+        fill: 0x231708,
+        fontSize: 9,
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+        stroke: COL_CONNECTOR,
+        strokeThickness: 3,
+      });
+      tag.anchor.set(0.5);
+      tag.x = mid.x;
+      tag.y = mid.y;
+      tag.resolution = 2;
+      connectorHandles.addChild(tag);
+
+      // large draggable end handle to re-target the link
+      const handle = new PIXI.Graphics();
+      handle.beginFill(color, 0.18);
+      handle.lineStyle(2, color, 0.9);
+      handle.drawCircle(0, 0, 13);
+      handle.endFill();
+      handle.beginFill(color, 1);
+      handle.drawCircle(0, 0, 4);
+      handle.endFill();
+      handle.x = tp.x;
+      handle.y = tp.y;
+      handle.eventMode = 'static';
+      handle.cursor = 'grab';
+      handle.on('pointerdown', (e: any) => {
+        if (stateRef.current.editorMode !== 'constructor') return;
+        e.stopPropagation?.();
+        const p = e.data.getLocalPosition(world);
+        dragging = { kind: 'link', sourceKind, id, x: p.x, y: p.y };
+        onSelectEntity(id);
+      });
+      connectorHandles.addChild(handle);
+    };
+
     const drawConnectors = () => {
       connectorsLayer.clear();
+      connectorHandles.removeChildren();
       const s = stateRef.current;
       if (s.editorMode !== 'constructor' || !s.showConnectors) return;
 
       s.config.triggers.forEach((trigger) => {
-        const target = s.config.objects.find((object) => object.id === trigger.targetId);
-        const tx = trigger.x + trigger.width / 2;
-        const ty = trigger.y + trigger.height / 2;
-        const ox = target ? target.x : s.config.doorSpawnX;
-        const oy = target ? target.y - target.height / 2 : GROUND_Y - DOOR_H / 2;
         const selected = s.selectedEntityId === trigger.id || s.selectedEntityId === trigger.targetId;
-        connectorsLayer.lineStyle(selected ? 4 : 2, selected ? 0xffffff : COL_CONNECTOR, selected ? 1 : 0.8);
-        connectorsLayer.moveTo(tx, ty);
-        connectorsLayer.lineTo(ox, oy);
-        connectorsLayer.beginFill(selected ? 0xffffff : COL_CONNECTOR, 1);
-        connectorsLayer.drawCircle(ox, oy, selected ? 6 : 4);
-        connectorsLayer.endFill();
+        drawConnector('trigger', trigger.id, trigger.x + trigger.width / 2, trigger.y + trigger.height / 2, trigger.targetId, trigger.action, selected);
+      });
+
+      // objects that carry their own action (touch / clickable buttons) also show a link
+      s.config.objects.forEach((object) => {
+        const action = object.action;
+        if (!action || action.kind === 'none') return;
+        const selected = s.selectedEntityId === object.id || s.selectedEntityId === action.targetId;
+        drawConnector('object', object.id, object.x, object.y - object.height / 2, action.targetId, action.kind, selected);
       });
     };
 
@@ -534,11 +666,31 @@ export default function LevelDevilGame({
     const drawObjects = () => {
       objectsLayer.removeChildren();
       const s = stateRef.current;
+      const play = s.editorMode === 'play';
 
       s.config.objects.forEach((object) => {
+        const runtime = s.objectRuntime.get(object.id);
+        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        const appeared = !play || (runtime ? runtime.since >= (object.appearDelay || 0) : true);
+
+        if (play) {
+          // pits are rendered by the floor; never draw a separate pit sprite in play
+          if (object.type === 'pit') return;
+          // hide not-yet-triggered and not-yet-appeared objects so the build stays clean
+          if (!active || !appeared) return;
+        }
+
         const display = makeObjectSprite(object);
         const selected = s.selectedEntityId === object.id;
-        if ('alpha' in display) display.alpha = stateRef.current.activeObjectIds.has(object.id) || object.type === 'spike' ? 1 : 0.6;
+        if (!play && 'alpha' in display) {
+          display.alpha = active || object.type === 'spike' ? 1 : 0.55;
+        }
+
+        if (play && object.clickable && (object.action?.kind || 'none') !== 'none') {
+          display.eventMode = 'static';
+          (display as any).cursor = 'pointer';
+          display.on('pointertap', () => runActionRef.current(object.action!.kind, object.action!.targetId, object.label));
+        }
 
         if (s.editorMode === 'constructor') {
           display.eventMode = 'static';
@@ -588,6 +740,13 @@ export default function LevelDevilGame({
       s.activeObjectIds.forEach((id) => activeIds.add(id));
       s.activeObjectIds = activeIds;
 
+      // Make sure every object (incl. ones just added in the editor) has a runtime entry.
+      s.config.objects.forEach((object) => {
+        if (!s.objectRuntime.has(object.id)) {
+          s.objectRuntime.set(object.id, { x: object.x, y: object.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 });
+        }
+      });
+
       drawFloor(s.floorCollapsed);
       drawObjects();
       drawTriggers();
@@ -635,7 +794,14 @@ export default function LevelDevilGame({
       s.spawnFrames = 10;
       s.activeObjectIds = new Set(s.config.objects.filter((object) => object.initiallyActive).map((object) => object.id));
       s.firedTriggerIds = new Set();
-      s.objectRuntime = new Map(s.config.objects.map((object) => [object.id, { x: object.x, y: object.y, vy: 0 }]));
+      s.splitPitIds = new Set();
+      // Motion is allowed to run immediately for objects whose motion starts on spawn.
+      s.motionRunIds = new Set(
+        s.config.objects.filter((object) => objectMotion(object).startOn === 'spawn').map((object) => object.id),
+      );
+      s.objectRuntime = new Map(
+        s.config.objects.map((object) => [object.id, { x: object.x, y: object.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 }]),
+      );
       setIsSkipVisible(false);
       setIsCtaVisible(false);
       drawScene();
@@ -684,24 +850,66 @@ export default function LevelDevilGame({
     };
     triggerDeathRef.current = triggerDeath;
 
+    const ensureRuntime = (id: string) => {
+      const s = stateRef.current;
+      const obj = s.config.objects.find((o) => o.id === id);
+      if (obj && !s.objectRuntime.has(id)) {
+        s.objectRuntime.set(id, { x: obj.x, y: obj.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 });
+      }
+    };
+
+    // Single entry point for every action, fired by trigger zones, touch-objects, or button taps.
+    const runAction = (kind: ObjectActionKind, targetId: string, sourceLabel: string) => {
+      const s = stateRef.current;
+      const targetLabel = s.config.objects.find((o) => o.id === targetId)?.label || (targetId === 'door' ? 'Door' : targetId);
+      switch (kind) {
+        case 'none':
+          return;
+        case 'startDoorChase':
+          s.doorTriggered = true;
+          setDoorArmed(true);
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} started door chase`);
+          break;
+        case 'collapseFloor':
+          s.floorCollapsed = true;
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} collapsed the floor`);
+          break;
+        case 'nextRun':
+          onLogEvent('PROGRESS', `[Action] ${sourceLabel} skipped to the next run`);
+          onRunComplete(s.activeRun + 1);
+          return;
+        case 'redirectCTA':
+          triggerDeath('REDIRECT');
+          return;
+        case 'splitFloor':
+          s.activeObjectIds.add(targetId);
+          s.splitPitIds.add(targetId);
+          s.motionRunIds.add(targetId);
+          ensureRuntime(targetId);
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} split the floor (${targetLabel})`);
+          break;
+        case 'openPit':
+          s.activeObjectIds.add(targetId);
+          ensureRuntime(targetId);
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} opened ${targetLabel}`);
+          break;
+        case 'activate':
+        default:
+          s.activeObjectIds.add(targetId);
+          s.motionRunIds.add(targetId);
+          ensureRuntime(targetId);
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} activated ${targetLabel}`);
+          break;
+      }
+      redrawHazards();
+    };
+    runActionRef.current = runAction;
+
     const activateTrigger = (trigger: TriggerZone) => {
       const s = stateRef.current;
       if (s.firedTriggerIds.has(trigger.id)) return;
       s.firedTriggerIds.add(trigger.id);
-
-      if (trigger.action === 'startDoorChase') {
-        s.doorTriggered = true;
-        setDoorArmed(true);
-        onLogEvent('TRAP_ACTIVATE', `[Trigger] ${trigger.label} started door chase`);
-      } else {
-        s.activeObjectIds.add(trigger.targetId);
-        const target = s.config.objects.find((object) => object.id === trigger.targetId);
-        if (target && !s.objectRuntime.has(target.id)) {
-          s.objectRuntime.set(target.id, { x: target.x, y: target.y, vy: 0 });
-        }
-        onLogEvent('TRAP_ACTIVATE', `[Trigger] ${trigger.label} activated ${target?.label || trigger.targetId}`);
-      }
-      redrawHazards();
+      runAction(trigger.action as ObjectActionKind, trigger.targetId, trigger.label);
     };
 
     floorGraphics.eventMode = 'static';
@@ -754,7 +962,7 @@ export default function LevelDevilGame({
       } else {
         if (!isTrapTool(s.currentTool)) return;
         const type = s.currentTool;
-        const preset = objectPresets[type];
+        const preset = objectPreset(type);
         next.objects.push({
           id,
           type,
@@ -764,6 +972,7 @@ export default function LevelDevilGame({
           height: preset.height,
           label: `${preset.label} ${next.objects.length + 1}`,
           initiallyActive: preset.initiallyActive,
+          role: preset.role,
         });
       }
       onConfigChange(next);
@@ -798,6 +1007,10 @@ export default function LevelDevilGame({
         dragging.display.x = clamp(p.x - dragging.dx, 40, VIEW_W - 40);
       } else if (dragging.kind === 'door') {
         dragging.display.x = clamp(p.x - dragging.dx, 80, VIEW_W - 40);
+      } else if (dragging.kind === 'link') {
+        dragging.x = p.x;
+        dragging.y = p.y;
+        drawConnectors();
       }
     });
 
@@ -818,6 +1031,34 @@ export default function LevelDevilGame({
         next.playerSpawnX = Math.round(dragging.display.x);
       } else if (dragging.kind === 'door') {
         next.doorSpawnX = Math.round(dragging.display.x);
+      } else if (dragging.kind === 'link') {
+        // Re-target the link: drop the handle onto an object, or near the door.
+        const drag = dragging;
+        const px = drag.x;
+        const py = drag.y;
+        const hit = next.objects.find((object) => {
+          const rect = objectLocalRect(object);
+          return px >= object.x + rect.x - 6 && px <= object.x + rect.x + rect.w + 6 &&
+            py >= object.y + rect.y - 6 && py <= object.y + rect.y + rect.h + 6;
+        });
+        const newTarget = hit ? hit.id : (Math.abs(px - next.doorSpawnX) < 60 ? 'door' : null);
+        if (newTarget) {
+          if (drag.sourceKind === 'trigger') {
+            next.triggers = next.triggers.map((trigger) =>
+              trigger.id === drag.id ? { ...trigger, targetId: newTarget } : trigger,
+            );
+          } else {
+            next.objects = next.objects.map((object) =>
+              object.id === drag.id && object.action
+                ? { ...object, action: { ...object.action, targetId: newTarget } }
+                : object,
+            );
+          }
+          onLogEvent('LINK', `Re-linked ${drag.id} -> ${newTarget}`);
+        }
+        dragging = null;
+        onConfigChange(next);
+        return;
       }
       dragging = null;
       onConfigChange(next);
@@ -873,16 +1114,30 @@ export default function LevelDevilGame({
         if (s.playerVelY < 0) s.playerVelY = 0;
       }
 
-      const inOpenPit = s.config.objects.some(
-        (object) =>
-          object.type === 'pit' &&
-          s.activeObjectIds.has(object.id) &&
-          player.x > object.x - object.width / 2 &&
-          player.x < object.x + object.width / 2 &&
-          player.y >= GROUND_Y - 4,
-      );
+      const inOpenPit = s.config.objects.some((object) => {
+        if (object.type !== 'pit' || !s.activeObjectIds.has(object.id)) return false;
+        const progress = s.splitPitIds.has(object.id) ? (s.objectRuntime.get(object.id)?.split ?? 0) : 1;
+        if (progress < 0.35) return false; // floor not open wide enough yet
+        const halfW = (object.width * progress) / 2;
+        return player.x > object.x - halfW && player.x < object.x + halfW && player.y >= GROUND_Y - 4;
+      });
 
-      if (player.y >= GROUND_Y) {
+      // Land on solid platforms (one-way: only when dropping onto the top edge).
+      let landedOnSolid = false;
+      for (const object of s.config.objects) {
+        if (effectiveRole(object) !== 'solid') continue;
+        if (!(s.activeObjectIds.has(object.id) || object.initiallyActive)) continue;
+        const r = objectWorldRect(object);
+        const prevFoot = player.y - s.playerVelY * delta;
+        if (s.playerVelY >= 0 && player.x > r.x && player.x < r.x + r.w && prevFoot <= r.y + 2 && player.y >= r.y) {
+          player.y = r.y;
+          s.playerVelY = 0;
+          s.isGrounded = true;
+          landedOnSolid = true;
+        }
+      }
+
+      if (!landedOnSolid && player.y >= GROUND_Y) {
         if (!s.floorCollapsed && !inOpenPit) {
           player.y = GROUND_Y;
           s.playerVelY = 0;
@@ -916,43 +1171,94 @@ export default function LevelDevilGame({
         }
       });
 
-      let hazardsMoved = false;
+      // --- advance per-object timers, reveal-on-delay, floor-split and motion ---
+      let objectsDirty = false;
       for (const object of s.config.objects) {
-        if (object.type !== 'fallingBlock' || !s.activeObjectIds.has(object.id)) continue;
-        const runtime = s.objectRuntime.get(object.id) || { x: object.x, y: object.y, vy: 0 };
-        runtime.vy = Math.min(runtime.vy + 0.62 * delta, 13);
-        runtime.y = Math.min(runtime.y + runtime.vy * delta, GROUND_Y - object.height / 2 + 1);
-        s.objectRuntime.set(object.id, runtime);
-        hazardsMoved = true;
+        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        if (!active) continue;
+        const rt = s.objectRuntime.get(object.id);
+        if (!rt) continue;
+        const before = rt.since;
+        rt.since += (1 / 60) * delta;
+
+        if ((object.appearDelay || 0) > 0 && before < object.appearDelay! && rt.since >= object.appearDelay!) {
+          objectsDirty = true; // object just became visible
+        }
+        if (object.type === 'pit' && s.splitPitIds.has(object.id) && rt.split < 1) {
+          rt.split = Math.min(1, rt.split + (1 / 24) * delta); // floor splits over ~0.4s
+          objectsDirty = true;
+        }
+
+        const m = objectMotion(object);
+        if (!s.motionRunIds.has(object.id) || rt.since < m.delay) continue;
+
+        if (m.mode === 'fall') {
+          rt.vy = Math.min(rt.vy + 0.62 * delta, 13);
+          rt.y = Math.min(rt.y + rt.vy * delta, GROUND_Y - object.height / 2 + 1);
+          objectsDirty = true;
+        } else if (m.mode === 'linear') {
+          const len = Math.hypot(m.dirX, m.dirY) || 1;
+          const stepX = (m.dirX / len) * m.speed * rt.pong * delta;
+          const stepY = (m.dirY / len) * m.speed * rt.pong * delta;
+          rt.x += stepX;
+          rt.y += stepY;
+          rt.traveled += Math.hypot(stepX, stepY);
+          if (m.distance > 0 && rt.traveled >= m.distance) {
+            if (m.loop) {
+              rt.pong *= -1; // bounce back the other way
+              rt.traveled = 0;
+            } else {
+              rt.pong = 0; // reached the end, stop
+            }
+          }
+          objectsDirty = true;
+        } else if (m.mode === 'chase') {
+          const tx = m.target === 'door' ? doorContainer.x : player.x;
+          const ty = m.target === 'door' ? doorContainer.y + DOOR_CY : player.y - PLAYER_H / 2;
+          const dx = tx - rt.x;
+          const dy = ty - rt.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const step = Math.min(m.speed * delta, d);
+          rt.x += (dx / d) * step;
+          rt.y += (dy / d) * step;
+          objectsDirty = true;
+        }
+        rt.x = clamp(rt.x, 0, VIEW_W);
+        rt.y = clamp(rt.y, BAND_TOP, GROUND_Y + 40);
       }
-      if (hazardsMoved) drawObjects();
+      if (objectsDirty) {
+        drawFloor(s.floorCollapsed);
+        drawObjects();
+      }
 
       for (const object of s.config.objects) {
         const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
         if (!active) continue;
-        if (object.type === 'spike' && Math.abs(player.x - object.x) < object.width / 2 && player.y > GROUND_Y - 12) {
-          triggerDeath('SPIKE');
-          return;
+        const rt = s.objectRuntime.get(object.id);
+        if ((object.appearDelay || 0) > 0 && rt && rt.since < object.appearDelay!) continue; // not appeared yet
+        const wr = objectWorldRect(object);
+        const touching = rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, wr.x, wr.y, wr.w, wr.h);
+
+        // any active object can carry a touch action (acts as a trigger), fired once
+        if (touching && object.action && object.action.kind !== 'none' && !object.clickable) {
+          const key = `obj:${object.id}`;
+          if (!s.firedTriggerIds.has(key)) {
+            s.firedTriggerIds.add(key);
+            runAction(object.action.kind, object.action.targetId, object.label);
+          }
         }
-        if (
-          object.type === 'saw' &&
-          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, object.x - object.width / 2, object.y - object.height / 2, object.width, object.height)
-        ) {
-          triggerDeath('SAW');
-          return;
+
+        if (effectiveRole(object) !== 'hazard') continue;
+        const cx = rt ? rt.x : object.x;
+        if (object.type === 'spike') {
+          if (Math.abs(player.x - cx) < object.width / 2 && player.y > GROUND_Y - 12) {
+            triggerDeath('SPIKE');
+            return;
+          }
+          continue;
         }
-        if (
-          (object.type === 'fallingBlock' || object.type === 'crusher') &&
-          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, objectWorldRect(object).x, objectWorldRect(object).y, objectWorldRect(object).w, objectWorldRect(object).h)
-        ) {
-          triggerDeath('CRUSH');
-          return;
-        }
-        if (
-          object.type === 'laser' &&
-          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, objectWorldRect(object).x, objectWorldRect(object).y, objectWorldRect(object).w, objectWorldRect(object).h)
-        ) {
-          triggerDeath('LASER');
+        if (touching) {
+          triggerDeath(object.type === 'saw' ? 'SAW' : object.type === 'laser' ? 'LASER' : 'CRUSH');
           return;
         }
       }
