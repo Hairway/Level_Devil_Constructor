@@ -1,674 +1,680 @@
-import { useState, useEffect } from 'react';
-import { GameConfig, EditorTool, ActiveRun, AnalyticsEvent } from './types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  AnalyticsEvent,
+  EditorMode,
+  EditorTool,
+  GameConfig,
+  LevelObject,
+  PlayableProject,
+  PlayableRun,
+  TriggerZone,
+} from './types';
 import LevelDevilGame from './components/LevelDevilGame';
 import {
-  Play,
-  RotateCcw,
+  Boxes,
+  Check,
   Copy,
+  Download,
+  Eye,
+  EyeOff,
+  FileCode2,
+  Gamepad2,
+  GitBranch,
+  Layers,
+  Link2,
+  MousePointer2,
+  Plus,
+  RotateCcw,
   Sliders,
   Terminal,
   Trash2,
-  Plus,
-  Gamepad2,
-  ChevronRight,
-  Sparkles,
-  Download,
-  Info,
-  Wrench,
-  CheckCircle2,
-  Check
 } from 'lucide-react';
 
-const DEFAULT_CONFIG: GameConfig = {
-  playerSpeed: 3.5,
-  jumpForce: 11,
-  gravity: 0.7,
-  doorBaseSpeed: 2.5,
-  doorAccelSpeed: 6.0,
-  doorHoming: 0.25,
-  triggerDistance: 260,
-  skipButtonDelay: 1.8,
-  spikes: [300, 420, 540],
-  playerSpawnX: 90,
-  doorSpawnX: 720
+const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+
+const baseObjects = (): LevelObject[] => [
+  {
+    id: 'spike-a',
+    type: 'spike',
+    x: 300,
+    y: 281,
+    width: 30,
+    height: 22,
+    label: 'First spike',
+    initiallyActive: true,
+  },
+  {
+    id: 'spike-b',
+    type: 'spike',
+    x: 420,
+    y: 281,
+    width: 30,
+    height: 22,
+    label: 'Second spike',
+    initiallyActive: true,
+  },
+  {
+    id: 'pit-a',
+    type: 'pit',
+    x: 520,
+    y: 281,
+    width: 90,
+    height: 42,
+    label: 'Opening pit',
+    initiallyActive: false,
+  },
+  {
+    id: 'saw-a',
+    type: 'saw',
+    x: 650,
+    y: 244,
+    width: 36,
+    height: 36,
+    label: 'Hidden saw',
+    initiallyActive: false,
+  },
+];
+
+const baseTriggers = (): TriggerZone[] => [
+  {
+    id: 'door-trigger',
+    x: 500,
+    y: 170,
+    width: 80,
+    height: 110,
+    targetId: 'door',
+    action: 'startDoorChase',
+    label: 'Door chase trigger',
+  },
+  {
+    id: 'pit-trigger',
+    x: 380,
+    y: 170,
+    width: 70,
+    height: 110,
+    targetId: 'pit-a',
+    action: 'openPit',
+    label: 'Pit trigger',
+  },
+];
+
+const createDefaultConfig = (): GameConfig => {
+  const objects = baseObjects();
+  return {
+    playerSpeed: 3.5,
+    jumpForce: 11,
+    gravity: 0.7,
+    doorBaseSpeed: 2.5,
+    doorAccelSpeed: 6,
+    doorHoming: 0.25,
+    triggerDistance: 260,
+    skipButtonDelay: 1.8,
+    spikes: objects.filter((object) => object.type === 'spike').map((object) => object.x),
+    playerSpawnX: 90,
+    doorSpawnX: 720,
+    objects,
+    triggers: baseTriggers(),
+  };
 };
 
+const cloneConfig = (config: GameConfig): GameConfig => ({
+  ...config,
+  spikes: [...config.spikes],
+  objects: config.objects.map((object) => ({ ...object })),
+  triggers: config.triggers.map((trigger) => ({ ...trigger })),
+});
+
+const normalizeConfig = (raw: Partial<GameConfig>): GameConfig => {
+  const defaults = createDefaultConfig();
+  const objects = Array.isArray(raw.objects) && raw.objects.length > 0
+    ? raw.objects.map((object) => ({ ...object }))
+    : (Array.isArray(raw.spikes) ? raw.spikes : defaults.spikes).map((x, index) => ({
+        id: `spike-${index + 1}`,
+        type: 'spike' as const,
+        x,
+        y: 281,
+        width: 30,
+        height: 22,
+        label: `Spike ${index + 1}`,
+        initiallyActive: true,
+      }));
+
+  return {
+    ...defaults,
+    ...raw,
+    spikes: objects.filter((object) => object.type === 'spike').map((object) => object.x),
+    objects,
+    triggers: Array.isArray(raw.triggers) ? raw.triggers.map((trigger) => ({ ...trigger })) : defaults.triggers,
+  };
+};
+
+const createRun = (name: string, config = createDefaultConfig()): PlayableRun => ({
+  id: makeId('run'),
+  name,
+  config: cloneConfig(config),
+});
+
+const createInitialProject = (): PlayableProject => {
+  const run1 = createRun('Run 1 - Door Chase', createDefaultConfig());
+  const run2Config = cloneConfig(run1.config);
+  run2Config.triggers = run2Config.triggers.filter((trigger) => trigger.id !== 'door-trigger');
+  const run2 = createRun('Run 2 - Skip Trap', run2Config);
+  const run3Config = cloneConfig(run1.config);
+  run3Config.triggers = [];
+  run3Config.objects = run3Config.objects.map((object) => ({ ...object, initiallyActive: object.type === 'spike' }));
+  const run3 = createRun('Run 3 - Safe Door CTA', run3Config);
+
+  return {
+    id: 'level-devil-play001-01',
+    name: 'Level_Devil_play001_01',
+    runs: [run1, run2, run3],
+  };
+};
+
+const selectedObjectLabel = (config: GameConfig, id: string | null) => {
+  if (!id) return 'Nothing selected';
+  if (id === 'playerSpawn') return 'Player Spawn';
+  if (id === 'door') return 'Door';
+  return config.objects.find((object) => object.id === id)?.label ||
+    config.triggers.find((trigger) => trigger.id === id)?.label ||
+    id;
+};
+
+const generateStandalonePlayable = (project: PlayableProject) => `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${project.name}</title>
+  <style>html,body,#app{margin:0;width:100%;height:100%;overflow:hidden;background:#c77b00}</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="https://pixijs.download/v7.3.2/pixi.min.js"></script>
+  <script>
+    const PLAYABLE_PROJECT = ${JSON.stringify(project, null, 2)};
+    const VIEW_W = 800, VIEW_H = 328, GROUND_Y = 280;
+    const app = new PIXI.Application({ width: VIEW_W, height: VIEW_H, backgroundColor: 0xc77b00, antialias: false });
+    document.getElementById('app').appendChild(app.view);
+    app.view.style.width = '100%';
+    app.view.style.height = '100%';
+    const run = PLAYABLE_PROJECT.runs[0];
+    const g = new PIXI.Graphics();
+    app.stage.addChild(g);
+    g.beginFill(0xe2a33c); g.drawRect(0, 0, VIEW_W, GROUND_Y + 8); g.endFill();
+    g.beginFill(0x231708); g.drawRect(run.config.playerSpawnX - 6, GROUND_Y - 36, 12, 36); g.endFill();
+    run.config.objects.forEach((object) => {
+      if (object.type === 'pit') return;
+      g.beginFill(object.type === 'saw' ? 0x8a1f10 : 0x231708, object.initiallyActive ? 1 : 0.5);
+      g.drawRect(object.x - object.width / 2, object.y - object.height, object.width, object.height);
+      g.endFill();
+    });
+    g.beginFill(0xcfcfcf); g.drawRect(run.config.doorSpawnX - 20, GROUND_Y - 56, 40, 56); g.endFill();
+  </script>
+</body>
+</html>`;
+
 export default function App() {
-  const [config, setConfig] = useState<GameConfig>(DEFAULT_CONFIG);
-  const [activeRun, setActiveRun] = useState<ActiveRun>(1);
-  const [currentTool, setCurrentTool] = useState<EditorTool>('view');
+  const [projects, setProjects] = useState<PlayableProject[]>([createInitialProject()]);
+  const [activeProjectIndex, setActiveProjectIndex] = useState(0);
+  const [activeRunIndex, setActiveRunIndex] = useState(0);
+  const [editorMode, setEditorMode] = useState<EditorMode>('constructor');
+  const [currentTool, setCurrentTool] = useState<EditorTool>('select');
   const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [showTriggers, setShowTriggers] = useState(true);
+  const [showConnectors, setShowConnectors] = useState(true);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [jsonText, setJsonText] = useState('');
+  const [isJsonValid, setIsJsonValid] = useState(true);
+  const [copied, setCopied] = useState<string | null>(null);
   const [logs, setLogs] = useState<AnalyticsEvent[]>([
     {
       id: 'init',
       timestamp: new Date().toLocaleTimeString(),
       type: 'SYSTEM',
-      description: 'Playable Environment Initialized Successfully'
-    }
+      description: 'Constructor initialized',
+    },
   ]);
-  const [jsonText, setJsonText] = useState<string>('');
-  const [copied, setCopied] = useState(false);
-  const [isJsonValid, setIsJsonValid] = useState(true);
 
-  // Keep JSON Textarea in sync with config state
+  const activeProject = projects[activeProjectIndex];
+  const activeRun = activeProject.runs[activeRunIndex];
+  const config = activeRun.config;
+
   useEffect(() => {
-    setJsonText(JSON.stringify(config, null, 2));
-  }, [config]);
+    setJsonText(JSON.stringify(activeProject, null, 2));
+  }, [activeProject]);
 
-  const addLog = (type: string, description: string) => {
+  const addLog = useCallback((type: string, description: string) => {
     const newEvent: AnalyticsEvent = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: Math.random().toString(36).slice(2, 9),
       timestamp: new Date().toLocaleTimeString(),
       type,
-      description
+      description,
     };
-    setLogs(prev => [newEvent, ...prev].slice(0, 100)); // Keep last 100 events
+    setLogs((prev) => [newEvent, ...prev].slice(0, 100));
+  }, []);
+
+  const updateActiveConfig = (nextConfig: GameConfig) => {
+    const normalized = normalizeConfig(nextConfig);
+    setProjects((prev) => prev.map((project, projectIndex) => {
+      if (projectIndex !== activeProjectIndex) return project;
+      return {
+        ...project,
+        runs: project.runs.map((run, runIndex) =>
+          runIndex === activeRunIndex ? { ...run, config: normalized } : run,
+        ),
+      };
+    }));
   };
 
-  const handleConfigChange = (newConfig: GameConfig) => {
-    setConfig(newConfig);
+  const setActiveProjectSafe = (index: number) => {
+    setActiveProjectIndex(index);
+    setActiveRunIndex(0);
+    setSelectedEntityId(null);
+  };
+
+  const addPlayable = () => {
+    setProjects((prev) => [
+      ...prev,
+      {
+        id: makeId('playable'),
+        name: `Level_Devil_play${String(prev.length + 1).padStart(3, '0')}_01`,
+        runs: [createRun('Run 1', createDefaultConfig())],
+      },
+    ]);
+    setActiveProjectIndex(projects.length);
+    setActiveRunIndex(0);
+    addLog('PROJECT', 'Created new playable iteration');
+  };
+
+  const duplicatePlayable = () => {
+    const source = activeProject;
+    const copy: PlayableProject = {
+      id: makeId('playable'),
+      name: `${source.name}_copy`,
+      runs: source.runs.map((run, index) => ({
+        id: makeId('run'),
+        name: `${run.name} Copy ${index + 1}`,
+        config: cloneConfig(run.config),
+      })),
+    };
+    setProjects((prev) => [...prev, copy]);
+    setActiveProjectIndex(projects.length);
+    setActiveRunIndex(0);
+    addLog('PROJECT', `Duplicated playable ${source.name}`);
+  };
+
+  const addRun = (copyCurrent = false) => {
+    const sourceConfig = copyCurrent ? config : createDefaultConfig();
+    const nextRun = createRun(`Run ${activeProject.runs.length + 1}`, sourceConfig);
+    setProjects((prev) => prev.map((project, projectIndex) => {
+      if (projectIndex !== activeProjectIndex) return project;
+      return { ...project, runs: [...project.runs, nextRun] };
+    }));
+    setActiveRunIndex(activeProject.runs.length);
+    setSelectedEntityId(null);
+    addLog('RUN', copyCurrent ? 'Copied current run' : 'Created empty run');
+  };
+
+  const deleteSelected = () => {
+    if (!selectedEntityId || selectedEntityId === 'playerSpawn' || selectedEntityId === 'door') return;
+    const next = cloneConfig(config);
+    next.objects = next.objects.filter((object) => object.id !== selectedEntityId);
+    next.triggers = next.triggers.filter((trigger) => trigger.id !== selectedEntityId && trigger.targetId !== selectedEntityId);
+    updateActiveConfig(next);
+    setSelectedEntityId(null);
+  };
+
+  const updateSelectedObject = (patch: Partial<LevelObject>) => {
+    if (!selectedEntityId) return;
+    const next = cloneConfig(config);
+    next.objects = next.objects.map((object) => object.id === selectedEntityId ? { ...object, ...patch } : object);
+    updateActiveConfig(next);
+  };
+
+  const updateSelectedTrigger = (patch: Partial<TriggerZone>) => {
+    if (!selectedEntityId) return;
+    const next = cloneConfig(config);
+    next.triggers = next.triggers.map((trigger) => trigger.id === selectedEntityId ? { ...trigger, ...patch } : trigger);
+    updateActiveConfig(next);
   };
 
   const handleJsonInputChange = (text: string) => {
     setJsonText(text);
     try {
       const parsed = JSON.parse(text);
-      // Validate schema
-      if (
-        typeof parsed.playerSpeed === 'number' &&
-        typeof parsed.jumpForce === 'number' &&
-        typeof parsed.gravity === 'number' &&
-        Array.isArray(parsed.spikes)
-      ) {
-        // Merge over defaults so older configs (missing newer fields) still work.
-        setConfig({ ...DEFAULT_CONFIG, ...parsed });
-        setIsJsonValid(true);
+      if (Array.isArray(parsed.runs)) {
+        const project: PlayableProject = {
+          id: parsed.id || makeId('playable'),
+          name: parsed.name || 'Imported Playable',
+          runs: parsed.runs.map((run: Partial<PlayableRun>, index: number) => ({
+            id: run.id || makeId('run'),
+            name: run.name || `Run ${index + 1}`,
+            config: normalizeConfig(run.config || {}),
+          })),
+        };
+        setProjects((prev) => prev.map((item, index) => index === activeProjectIndex ? project : item));
       } else {
-        setIsJsonValid(false);
+        updateActiveConfig(normalizeConfig(parsed));
       }
+      setIsJsonValid(true);
     } catch {
       setIsJsonValid(false);
     }
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-    setCopied(true);
-    addLog('SYSTEM', 'Config copied to clipboard!');
-    setTimeout(() => setCopied(false), 2000);
+  const copyText = async (text: string, label: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 1600);
   };
 
-  const resetToDefault = () => {
-    setConfig(DEFAULT_CONFIG);
-    addLog('SYSTEM', 'Reset configurations to default presets');
-  };
+  const standalonePlayable = useMemo(() => generateStandalonePlayable(activeProject), [activeProject]);
+  const selectedObject = config.objects.find((object) => object.id === selectedEntityId);
+  const selectedTrigger = config.triggers.find((trigger) => trigger.id === selectedEntityId);
+
+  const toolButtons: Array<{ id: EditorTool; label: string }> = [
+    { id: 'select', label: 'Select' },
+    { id: 'spike', label: 'Spike' },
+    { id: 'saw', label: 'Saw' },
+    { id: 'pit', label: 'Pit' },
+    { id: 'trigger', label: 'Trigger' },
+    { id: 'erase', label: 'Erase' },
+  ];
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      
-      {/* LEFT CONTENT: Interactive Game Panel */}
-      <div className="flex-1 flex flex-col p-4 xl:p-6 justify-between border-b lg:border-b-0 lg:border-r border-zinc-800 bg-zinc-900/40">
-        
-        {/* Header Title bar */}
+      <div className="flex-1 flex flex-col p-4 xl:p-6 border-b lg:border-b-0 lg:border-r border-zinc-800 bg-zinc-900/40">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30">
-                Playable Ad Studio
+                Playable Constructor
               </span>
-              <span className="text-zinc-500 text-xs font-mono">• v1.4.0</span>
+              <span className="text-zinc-500 text-xs font-mono">v2.0</span>
             </div>
             <h1 className="text-2xl font-bold font-display tracking-tight text-zinc-100 mt-1">
-              Level Devil <span className="text-amber-500 font-light">Playground</span>
+              {activeProject.name}
             </h1>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Interactive level simulator, playable scenario designer, and real-time behavioral sandbox
+              {activeRun.name} - {editorMode === 'constructor' ? 'edit objects, triggers, and links' : 'play the playable flow'}
             </p>
           </div>
 
-          {/* Quick preset triggers */}
           <div className="flex items-center gap-1.5 bg-zinc-950/80 p-1 border border-zinc-800 rounded-lg">
             <button
-              onClick={() => {
-                setActiveRun(1);
-                addLog('PRESET', 'Selected Scene Run 1: Spike Gate Chase');
-              }}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                activeRun === 1
-                  ? 'bg-amber-500 text-zinc-950 shadow-md'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-              }`}
+              onClick={() => setEditorMode('play')}
+              className={`px-3 py-2 rounded-md text-xs font-bold transition flex items-center gap-1 cursor-pointer ${editorMode === 'play' ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'}`}
             >
               <Gamepad2 className="w-3.5 h-3.5" />
-              <span>Run 1</span>
+              <span>Play</span>
             </button>
             <button
-              onClick={() => {
-                setActiveRun(2);
-                addLog('PRESET', 'Selected Scene Run 2: Fake Skip Trap');
-              }}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                activeRun === 2
-                  ? 'bg-amber-500 text-zinc-950 shadow-md'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-              }`}
+              onClick={() => setEditorMode('constructor')}
+              className={`px-3 py-2 rounded-md text-xs font-bold transition flex items-center gap-1 cursor-pointer ${editorMode === 'constructor' ? 'bg-amber-500 text-zinc-950' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'}`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Run 2</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveRun(3);
-                addLog('PRESET', 'Selected Scene Run 3: Green Choice / CTA');
-              }}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                activeRun === 3
-                  ? 'bg-amber-500 text-zinc-950 shadow-md'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-              }`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Run 3</span>
+              <MousePointer2 className="w-3.5 h-3.5" />
+              <span>Constructor</span>
             </button>
           </div>
         </div>
 
-        {/* PIXI Game canvas viewport */}
         <div className="flex justify-center my-auto py-2">
           <LevelDevilGame
             config={config}
-            activeRun={activeRun}
+            activeRun={activeRunIndex + 1}
+            editorMode={editorMode}
             currentTool={currentTool}
             orientation={orientation}
-            onConfigChange={handleConfigChange}
+            selectedEntityId={selectedEntityId}
+            showTriggers={showTriggers}
+            showConnectors={showConnectors}
+            onConfigChange={updateActiveConfig}
+            onSelectEntity={setSelectedEntityId}
             onLogEvent={addLog}
             onRunComplete={(nextRun) => {
-              setActiveRun(nextRun);
-              addLog('PROGRESS', `Advancing auto-flow to Run Scenario ${nextRun}`);
+              setActiveRunIndex(Math.min(nextRun - 1, activeProject.runs.length - 1));
+              addLog('PROGRESS', `Advanced to Run ${nextRun}`);
             }}
-            onDeath={() => {
-              addLog('SYSTEM', 'Triggered death-shake sequence.');
-            }}
+            onDeath={() => addLog('SYSTEM', 'Death animation triggered')}
           />
         </div>
 
-        {/* DEV TERMINAL / LOGS CARD */}
         <div className="mt-4 bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-40">
           <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Terminal className="w-4 h-4 text-emerald-400" />
               <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 font-bold">
-                Playable Analytics Event Monitor
+                Event Monitor
               </span>
             </div>
-            <button
-              onClick={() => setLogs([])}
-              className="text-zinc-500 hover:text-zinc-300 text-[10px] font-mono uppercase border border-zinc-800 hover:bg-zinc-900 px-2 py-0.5 rounded transition"
-            >
+            <button onClick={() => setLogs([])} className="text-zinc-500 hover:text-zinc-300 text-[10px] font-mono uppercase border border-zinc-800 hover:bg-zinc-900 px-2 py-0.5 rounded transition">
               Clear
             </button>
           </div>
           <div className="p-3 overflow-y-auto flex-1 font-mono text-[11px] space-y-1.5 bg-black/50 select-text">
-            {logs.length === 0 ? (
-              <div className="text-zinc-600 italic text-center py-4">No events monitored yet. Move player or trigger traps to view log.</div>
-            ) : (
-              logs.map((log) => (
-                <div key={log.id} className="flex items-start gap-2 border-b border-zinc-900/30 pb-1">
-                  <span className="text-zinc-500 shrink-0">[{log.timestamp}]</span>
-                  <span
-                    className={`font-bold shrink-0 px-1 py-0.2 rounded text-[9px] ${
-                      log.type === 'DEATH'
-                        ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                        : log.type === 'TRAP_ACTIVATE'
-                        ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                        : log.type === 'SKIP_CLICK'
-                        ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                        : log.type === 'CTA_TRIGGER' || log.type === 'CTA_CLICK'
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : 'bg-zinc-800 text-zinc-400'
-                    }`}
-                  >
-                    {log.type}
-                  </span>
-                  <span className="text-zinc-300 break-all">{log.description}</span>
-                </div>
-              ))
-            )}
+            {logs.map((log) => (
+              <div key={log.id} className="flex items-start gap-2 border-b border-zinc-900/30 pb-1">
+                <span className="text-zinc-500 shrink-0">[{log.timestamp}]</span>
+                <span className="font-bold shrink-0 px-1 rounded text-[9px] bg-zinc-800 text-zinc-400">{log.type}</span>
+                <span className="text-zinc-300 break-all">{log.description}</span>
+              </div>
+            ))}
           </div>
         </div>
-
       </div>
 
-      {/* RIGHT SIDEBAR: Editor & Control Panel */}
-      <div className="w-full lg:w-[410px] shrink-0 bg-zinc-950 flex flex-col p-4 xl:p-6 overflow-y-auto h-auto lg:h-screen select-none">
-        
-        {/* Scenario Header */}
-        <div className="mb-6 pb-4 border-b border-zinc-900 flex items-center justify-between">
+      <div className="w-full lg:w-[430px] shrink-0 bg-zinc-950 flex flex-col p-4 xl:p-6 overflow-y-auto h-auto lg:h-screen select-none">
+        <div className="mb-5 pb-4 border-b border-zinc-900 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Wrench className="w-5 h-5 text-amber-500" />
+            <Boxes className="w-5 h-5 text-amber-500" />
             <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-300 font-display">
-              Level Editor Dashboard
+              Constructor
             </h2>
           </div>
           <button
-            onClick={resetToDefault}
+            onClick={() => updateActiveConfig(createDefaultConfig())}
             className="text-xs text-zinc-400 hover:text-zinc-200 transition flex items-center gap-1 border border-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg active:scale-95 cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset All</span>
+            <span>Reset Run</span>
           </button>
         </div>
 
-        {/* Playable Orientation Selector */}
-        <div className="bg-zinc-900/40 border border-zinc-900 rounded-xl p-4 mb-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
-            <Sliders className="w-3.5 h-3.5 text-zinc-500" />
-            <span>Playable Orientation</span>
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => {
-                setOrientation('horizontal');
-                addLog('SYSTEM', 'Playable preview switched to Horizontal (Landscape)');
-              }}
-              className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex flex-col items-center gap-1.5 cursor-pointer ${
-                orientation === 'horizontal'
-                  ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30 font-bold shadow-sm'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-              }`}
-            >
-              <div className="w-7 h-4 border-2 border-current rounded-sm opacity-80" />
-              <span>Horizontal</span>
-            </button>
-            <button
-              onClick={() => {
-                setOrientation('vertical');
-                addLog('SYSTEM', 'Playable preview switched to Vertical (Portrait Phone)');
-              }}
-              className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex flex-col items-center gap-1.5 cursor-pointer ${
-                orientation === 'vertical'
-                  ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30 font-bold shadow-sm'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-              }`}
-            >
-              <div className="w-4 h-7 border-2 border-current rounded-sm opacity-80" />
-              <span>Vertical</span>
-            </button>
-          </div>
-          <div className="mt-2.5 flex gap-1.5 items-start">
-            <Info className="w-3.5 h-3.5 text-amber-500/80 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-zinc-400 leading-relaxed">
-              {orientation === 'horizontal' 
-                ? 'Wide landscape format commonly optimized for mobile and desktop web banner feeds.' 
-                : 'Tall portrait ratio optimized for mobile app-install ad inventories and social feeds.'}
-            </p>
-          </div>
-        </div>
-
-        {/* Section: Screen Click Tool Mode */}
-        <div className="bg-zinc-900/40 border border-zinc-900 rounded-xl p-4 mb-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
-            <span>Canvas Interactive Tool</span>
-            <span className="text-[10px] lowercase text-zinc-500 font-normal">(Click on screen)</span>
-          </h3>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => {
-                setCurrentTool('view');
-                addLog('TOOL', 'Switched tool to standard simulator/view mode');
-              }}
-              className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex flex-col items-center gap-1 cursor-pointer ${
-                currentTool === 'view'
-                  ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30 font-bold shadow-sm'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-              }`}
-            >
-              <Play className="w-3.5 h-3.5" />
-              <span>Test Mode</span>
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTool('spike');
-                addLog('TOOL', 'Switched tool to Spike Addition Mode');
-              }}
-              className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex flex-col items-center gap-1 cursor-pointer ${
-                currentTool === 'spike'
-                  ? 'bg-red-500/15 text-red-400 border border-red-500/30 font-bold shadow-sm'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-              }`}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Add Spike</span>
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTool('erase');
-                addLog('TOOL', 'Switched tool to Spike Removal Mode');
-              }}
-              className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex flex-col items-center gap-1 cursor-pointer ${
-                currentTool === 'erase'
-                  ? 'bg-zinc-500/15 text-zinc-300 border border-zinc-500/30 font-bold shadow-sm'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-              }`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Erase Spike</span>
-            </button>
-          </div>
-          <div className="mt-2.5 flex gap-1.5 items-start">
-            <Info className="w-3.5 h-3.5 text-amber-500/80 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-zinc-400 leading-relaxed">
-              {currentTool === 'view' && 'Play freely on the board using virtual controls or Arrow keys / WASD.'}
-              {currentTool === 'spike' && 'Click anywhere inside the orange level corridor to seed a custom triple-spike hazard.'}
-              {currentTool === 'erase' && 'Click near any existing spike group inside the orange level corridor to instantly remove it.'}
-            </p>
-          </div>
-        </div>
-
-        {/* Sliders Configuration */}
-        <div className="space-y-5">
-          
-          {/* Section 1: Player Physics Settings */}
-          <div className="border border-zinc-900 bg-zinc-900/20 rounded-xl p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-4 flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-zinc-500" />
-              <span>Hero Physics Constants</span>
+        <div className="space-y-4">
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <Layers className="w-3.5 h-3.5" />
+              Playables
             </h3>
-
-            <div className="space-y-4">
-              {/* Speed Slider */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Character Run Speed</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.playerSpeed} px/f</span>
-                </div>
-                <input
-                  type="range"
-                  min="2"
-                  max="10"
-                  step="0.5"
-                  value={config.playerSpeed}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConfig(prev => ({ ...prev, playerSpeed: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Jump Force Slider */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Jump Altitude Impulse</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.jumpForce} px/f</span>
-                </div>
-                <input
-                  type="range"
-                  min="8"
-                  max="18"
-                  step="0.5"
-                  value={config.jumpForce}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConfig(prev => ({ ...prev, jumpForce: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Gravity Slider */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">World Gravity Force</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.gravity} px/f²</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.3"
-                  max="1.5"
-                  step="0.1"
-                  value={config.gravity}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConfig(prev => ({ ...prev, gravity: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
+            <div className="space-y-2">
+              {projects.map((project, index) => (
+                <button
+                  key={project.id}
+                  onClick={() => setActiveProjectSafe(index)}
+                  className={`w-full text-left px-3 py-2 rounded-lg border text-xs cursor-pointer ${index === activeProjectIndex ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+                >
+                  {project.name}
+                </button>
+              ))}
             </div>
-          </div>
-
-          {/* Section 2: Gate Traps Settings */}
-          <div className="border border-zinc-900 bg-zinc-900/20 rounded-xl p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-4 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-zinc-500" />
-              <span>Gate & Trap Behaviors</span>
-            </h3>
-
-            <div className="space-y-4">
-              {/* Initial Chase Speed */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Initial Saw Chase Velocity</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.doorBaseSpeed} px/f</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="6"
-                  step="0.1"
-                  value={config.doorBaseSpeed}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConfig(prev => ({ ...prev, doorBaseSpeed: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Accelerated Speed */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Turbo Saw Pursuit Speed</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.doorAccelSpeed} px/f</span>
-                </div>
-                <input
-                  type="range"
-                  min="4"
-                  max="15"
-                  step="0.5"
-                  value={config.doorAccelSpeed}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConfig(prev => ({ ...prev, doorAccelSpeed: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Door Homing / Inertia */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Door Homing / Inertia</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.doorHoming}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.05"
-                  max="0.6"
-                  step="0.05"
-                  value={config.doorHoming}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConfig(prev => ({ ...prev, doorHoming: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-                <p className="text-[10px] text-zinc-500 mt-1">Low = lazy, drifts past the player. High = snaps onto the player.</p>
-              </div>
-
-              {/* Trigger Distance */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Gate Chase Trigger Proximity</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.triggerDistance} px</span>
-                </div>
-                <input
-                  type="range"
-                  min="150"
-                  max="450"
-                  step="10"
-                  value={config.triggerDistance}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    setConfig(prev => ({ ...prev, triggerDistance: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Skip Delay */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Skip Button Render Timeout</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.skipButtonDelay} s</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="5.0"
-                  step="0.1"
-                  value={config.skipButtonDelay}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConfig(prev => ({ ...prev, skipButtonDelay: val }));
-                  }}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button onClick={addPlayable} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                <Plus className="w-3.5 h-3.5" />
+                New
+              </button>
+              <button onClick={duplicatePlayable} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                <Copy className="w-3.5 h-3.5" />
+                Copy
+              </button>
             </div>
-          </div>
+          </section>
 
-          {/* Spike Coordinates Viewer */}
-          <div className="border border-zinc-900 bg-zinc-900/20 rounded-xl p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">
-              Spike Placements ({config.spikes.length})
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <GitBranch className="w-3.5 h-3.5" />
+              Runs
             </h3>
-            {config.spikes.length === 0 ? (
-              <p className="text-[10px] text-zinc-500 italic">No spikes deployed on the ground floor. Click "+ Add Spike" to place some.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                {config.spikes.map((sx, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-zinc-900 border border-zinc-800 px-2 py-1 rounded text-[10px] font-mono flex items-center gap-1 text-zinc-300"
-                  >
-                    <span>Spike #{idx + 1}:</span>
-                    <strong className="text-amber-500">{sx}px</strong>
-                    <button
-                      onClick={() => {
-                        const nextSpikes = config.spikes.filter((_, i) => i !== idx);
-                        setConfig(prev => ({ ...prev, spikes: nextSpikes }));
-                        addLog('SPIKE_REMOVE', `Removed spike trap at index ${idx + 1}`);
-                      }}
-                      className="text-zinc-500 hover:text-red-400 pl-1 transition cursor-pointer"
-                      title="Delete spike"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+            <div className="grid grid-cols-3 gap-2">
+              {activeProject.runs.map((run, index) => (
+                <button
+                  key={run.id}
+                  onClick={() => {
+                    setActiveRunIndex(index);
+                    setSelectedEntityId(null);
+                  }}
+                  className={`py-2 px-2 rounded-lg text-xs font-semibold border cursor-pointer ${index === activeRunIndex ? 'bg-amber-500 text-zinc-950 border-amber-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+                >
+                  Run {index + 1}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button onClick={() => addRun(false)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                <Plus className="w-3.5 h-3.5" />
+                Empty Run
+              </button>
+              <button onClick={() => addRun(true)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                <Copy className="w-3.5 h-3.5" />
+                Copy Run
+              </button>
+            </div>
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <MousePointer2 className="w-3.5 h-3.5" />
+              Tools
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+              {toolButtons.map((tool) => (
+                <button
+                  key={tool.id}
+                  onClick={() => {
+                    setEditorMode('constructor');
+                    setCurrentTool(tool.id);
+                  }}
+                  className={`py-2 px-2 rounded-lg text-xs font-semibold border cursor-pointer ${currentTool === tool.id ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+                >
+                  {tool.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button onClick={() => setShowTriggers((v) => !v)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                {showTriggers ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                Triggers
+              </button>
+              <button onClick={() => setShowConnectors((v) => !v)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                <Link2 className="w-3.5 h-3.5" />
+                Links
+              </button>
+            </div>
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3">
+              Selected: <span className="text-amber-400">{selectedObjectLabel(config, selectedEntityId)}</span>
+            </h3>
+            {selectedObject && (
+              <div className="space-y-3 text-xs">
+                <input value={selectedObject.label} onChange={(e) => updateSelectedObject({ label: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300" />
+                <label className="flex items-center gap-2 text-zinc-400">
+                  <input type="checkbox" checked={selectedObject.initiallyActive} onChange={(e) => updateSelectedObject({ initiallyActive: e.target.checked })} />
+                  Active on start
+                </label>
+                <button onClick={deleteSelected} className="w-full py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Object
+                </button>
               </div>
             )}
-          </div>
+            {selectedTrigger && (
+              <div className="space-y-3 text-xs">
+                <input value={selectedTrigger.label} onChange={(e) => updateSelectedTrigger({ label: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300" />
+                <select value={selectedTrigger.action} onChange={(e) => updateSelectedTrigger({ action: e.target.value as TriggerZone['action'] })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300">
+                  <option value="activate">Activate object</option>
+                  <option value="openPit">Open pit</option>
+                  <option value="startDoorChase">Start door chase</option>
+                </select>
+                <select value={selectedTrigger.targetId} onChange={(e) => updateSelectedTrigger({ targetId: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300">
+                  <option value="door">Door</option>
+                  {config.objects.map((object) => <option key={object.id} value={object.id}>{object.label}</option>)}
+                </select>
+                <button onClick={deleteSelected} className="w-full py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Trigger
+                </button>
+              </div>
+            )}
+            {!selectedObject && !selectedTrigger && selectedEntityId !== 'playerSpawn' && selectedEntityId !== 'door' && (
+              <p className="text-[10px] text-zinc-500">Select or drag an object/trigger in Constructor mode.</p>
+            )}
+          </section>
 
-          {/* Level Layout: spawn positions */}
-          <div className="border border-zinc-900 bg-zinc-900/20 rounded-xl p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-4">
-              Level Layout
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <Sliders className="w-3.5 h-3.5" />
+              Tuning
             </h3>
-            <div className="space-y-4">
-              <div>
+            {[
+              ['playerSpeed', 'Hero speed', 2, 10, 0.5],
+              ['jumpForce', 'Jump force', 8, 18, 0.5],
+              ['gravity', 'Gravity', 0.3, 1.5, 0.1],
+              ['doorBaseSpeed', 'Door base speed', 1, 8, 0.1],
+              ['doorAccelSpeed', 'Door max speed', 4, 18, 0.5],
+              ['doorHoming', 'Door homing', 0.05, 0.8, 0.05],
+              ['skipButtonDelay', 'Skip delay', 0.5, 5, 0.1],
+            ].map(([key, label, min, max, step]) => (
+              <div key={key as string} className="mb-3">
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Player Start Position</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.playerSpawnX} px</span>
+                  <span className="text-zinc-300">{label as string}</span>
+                  <span className="text-amber-500 font-mono">{config[key as keyof GameConfig] as number}</span>
                 </div>
                 <input
                   type="range"
-                  min="60"
-                  max="400"
-                  step="5"
-                  value={config.playerSpawnX}
-                  onChange={(e) => setConfig(prev => ({ ...prev, playerSpawnX: parseInt(e.target.value) }))}
+                  min={min as number}
+                  max={max as number}
+                  step={step as number}
+                  value={config[key as keyof GameConfig] as number}
+                  onChange={(e) => updateActiveConfig({ ...config, [key as string]: parseFloat(e.target.value) })}
                   className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
                 />
               </div>
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300 font-medium">Door Position</span>
-                  <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 rounded text-[11px]">{config.doorSpawnX} px</span>
-                </div>
-                <input
-                  type="range"
-                  min="400"
-                  max="750"
-                  step="5"
-                  value={config.doorSpawnX}
-                  onChange={(e) => setConfig(prev => ({ ...prev, doorSpawnX: parseInt(e.target.value) }))}
-                  className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-                />
-              </div>
-            </div>
-          </div>
+            ))}
+          </section>
 
-          {/* Section 3: Import/Export Config */}
-          <div className="border border-zinc-900 bg-zinc-900/20 rounded-xl p-4 mb-4">
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center justify-between">
-              <span>Interactive JSON Config</span>
-              <span className="text-[9px] text-zinc-500 uppercase">Import & Export</span>
+              <span>Import / Export</span>
+              <FileCode2 className="w-3.5 h-3.5" />
             </h3>
-
             <textarea
               value={jsonText}
               onChange={(e) => handleJsonInputChange(e.target.value)}
-              className={`w-full h-32 bg-black border rounded-lg p-2.5 text-[10px] font-mono focus:outline-none focus:ring-1 ${
-                isJsonValid
-                  ? 'border-zinc-800 text-zinc-300 focus:border-amber-500 focus:ring-amber-500/30'
-                  : 'border-red-500 text-red-400 focus:border-red-500 focus:ring-red-500/30'
-              }`}
-              placeholder="Paste custom level configuration JSON here..."
+              className={`w-full h-36 bg-black border rounded-lg p-2.5 text-[10px] font-mono focus:outline-none focus:ring-1 ${isJsonValid ? 'border-zinc-800 text-zinc-300 focus:border-amber-500 focus:ring-amber-500/30' : 'border-red-500 text-red-400 focus:border-red-500 focus:ring-red-500/30'}`}
             />
-            
-            {!isJsonValid && (
-              <p className="text-[10px] text-red-500 font-mono mt-1">
-                Invalid GameConfig JSON Schema
-              </p>
-            )}
-
             <div className="grid grid-cols-2 gap-2 mt-3">
-              <button
-                onClick={copyToClipboard}
-                className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? 'Copied!' : 'Copy Config'}</span>
+              <button onClick={() => copyText(JSON.stringify(activeProject, null, 2), 'json')} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                {copied === 'json' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                Project JSON
               </button>
-              
-              <a
-                href={`data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(config, null, 2))}`}
-                download="level-devil-config.json"
-                className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 text-center cursor-pointer"
-              >
+              <a href={`data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(activeProject, null, 2))}`} download={`${activeProject.name}.json`} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                 <Download className="w-3.5 h-3.5" />
-                <span>Download</span>
+                JSON File
+              </a>
+              <button onClick={() => copyText(standalonePlayable, 'code')} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                {copied === 'code' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FileCode2 className="w-3.5 h-3.5" />}
+                Copy Code
+              </button>
+              <a href={`data:text/html;charset=utf-8,${encodeURIComponent(standalonePlayable)}`} download={`${activeProject.name}.html`} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                <Download className="w-3.5 h-3.5" />
+                HTML
               </a>
             </div>
-          </div>
-
+          </section>
         </div>
-
       </div>
-
     </div>
   );
 }

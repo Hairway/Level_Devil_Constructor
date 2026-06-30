@@ -1,3 +1,28 @@
+export type TrapObjectType = 'spike' | 'saw' | 'pit';
+export type TriggerAction = 'activate' | 'openPit' | 'startDoorChase';
+
+export interface LevelObject {
+  id: string;
+  type: TrapObjectType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: string;
+  initiallyActive: boolean;
+}
+
+export interface TriggerZone {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  targetId: string;
+  action: TriggerAction;
+  label: string;
+}
+
 export interface GameConfig {
   playerSpeed: number;
   jumpForce: number;
@@ -10,6 +35,20 @@ export interface GameConfig {
   spikes: number[];
   playerSpawnX: number;
   doorSpawnX: number;
+  objects: LevelObject[];
+  triggers: TriggerZone[];
+}
+
+export interface PlayableRun {
+  id: string;
+  name: string;
+  config: GameConfig;
+}
+
+export interface PlayableProject {
+  id: string;
+  name: string;
+  runs: PlayableRun[];
 }
 
 export interface AnalyticsEvent {
@@ -19,5 +58,6 @@ export interface AnalyticsEvent {
   description: string;
 }
 
-export type EditorTool = 'view' | 'spike' | 'erase';
-export type ActiveRun = 1 | 2 | 3;
+export type EditorMode = 'play' | 'constructor';
+export type EditorTool = 'select' | 'spike' | 'saw' | 'pit' | 'trigger' | 'erase';
+export type ActiveRun = number;

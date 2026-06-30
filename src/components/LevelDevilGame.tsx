@@ -1,53 +1,85 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import * as PIXI from 'pixi.js';
-import { GameConfig, EditorTool, ActiveRun } from '../types';
+import { ActiveRun, EditorMode, EditorTool, GameConfig, LevelObject, TriggerZone } from '../types';
 import * as A from '../assets';
 
-// Where the playable should redirect on CTA / Install. Replace with the real store URL.
 const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
 
 const VIEW_W = 800;
 const VIEW_H = 328;
-const GROUND_Y = 280;     // y of the floor line (player feet)
-const BAND_TOP = 0;       // top of the play zone / ceiling
-const PLAYER_H = 36;      // player display height (ceiling collision)
-const PLAYER_SCALE = PLAYER_H / 16; // hero sprites are 16px tall
+const GROUND_Y = 280;
+const BAND_TOP = 0;
+const PLAYER_H = 36;
+const PLAYER_SCALE = PLAYER_H / 16;
 const DOOR_W = 40;
 const DOOR_H = 56;
 const DOOR_CY = -DOOR_H / 2;
 
-// Warm flat palette tuned to the reference.
 const COL_BG = 0xc77b00;
 const COL_BAND = 0xe2a33c;
 const COL_BAND_HI = 0xeab451;
-const COL_INK = 0x231708;   // player / spikes / text tint
+const COL_INK = 0x231708;
+const COL_TRIGGER = 0x38bdf8;
+const COL_CONNECTOR = 0xfbbf24;
+
+type DeathCause = 'SAW' | 'SPIKE' | 'PIT' | 'REDIRECT';
+
+const cloneConfig = (config: GameConfig): GameConfig => ({
+  ...config,
+  spikes: [...config.spikes],
+  objects: config.objects.map((object) => ({ ...object })),
+  triggers: config.triggers.map((trigger) => ({ ...trigger })),
+});
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const rectsOverlap = (
+  ax: number,
+  ay: number,
+  aw: number,
+  ah: number,
+  bx: number,
+  by: number,
+  bw: number,
+  bh: number,
+) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 
 export default function LevelDevilGame({
   config,
   activeRun,
+  editorMode,
   currentTool,
   orientation,
+  selectedEntityId,
+  showTriggers,
+  showConnectors,
   onConfigChange,
+  onSelectEntity,
   onLogEvent,
   onRunComplete,
   onDeath,
 }: LevelDevilGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<PIXI.Application | null>(null);
-  const headerTextRef = useRef<PIXI.Text | null>(null);
-  const indicatorPanelRef = useRef<PIXI.Graphics | null>(null);
+  const redrawRef = useRef<() => void>(() => {});
+  const resetRef = useRef<() => void>(() => {});
+  const triggerDeathRef = useRef<((cause: DeathCause) => void) | null>(null);
+  const drawFloorRef = useRef<(collapsed: boolean) => void>(() => {});
 
   const [isMuted, setIsMuted] = useState(false);
-
-  const resetGameRef = useRef<() => void>(() => {});
-  const drawSpikesRef = useRef<() => void>(() => {});
-  const drawFloorRef = useRef<(collapsed: boolean) => void>(() => {});
-  const triggerDeathRef = useRef<((cause: 'SAW' | 'SPIKE' | 'PIT' | 'REDIRECT') => void) | null>(null);
+  const [isSkipVisible, setIsSkipVisible] = useState(false);
+  const [isCtaVisible, setIsCtaVisible] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+  const [showHand, setShowHand] = useState(true);
 
   const stateRef = useRef({
-    config,
+    config: cloneConfig(config),
     activeRun,
+    editorMode,
     currentTool,
+    selectedEntityId,
+    showTriggers,
+    showConnectors,
     keys: {} as Record<string, boolean>,
     playerVelY: 0,
     playerVelX: 0,
@@ -66,73 +98,71 @@ export default function LevelDevilGame({
     skipButtonActive: false,
     skipClicked: false,
     endcardActive: false,
-    paused: false,
     splashActive: true,
     playerMoved: false,
+    activeObjectIds: new Set<string>(),
+    firedTriggerIds: new Set<string>(),
   });
 
-  const [isSkipVisible, setIsSkipVisible] = useState(false);
-  const [isCtaVisible, setIsCtaVisible] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
-  const [showHand, setShowHand] = useState(true);
-  const [isPaused, setIsPaused] = useState(false);
-  const activeTitle = activeRun === 3 ? 'TRY NEW DOOR' : 'REACH THE DOOR';
-
-  useEffect(() => { stateRef.current.activeRun = activeRun; }, [activeRun]);
-  useEffect(() => { stateRef.current.currentTool = currentTool; }, [currentTool]);
-
   useEffect(() => {
-    stateRef.current.config = config;
-    drawSpikesRef.current();
+    stateRef.current.config = cloneConfig(config);
+    redrawRef.current();
   }, [config]);
 
   useEffect(() => {
-    resetGameRef.current();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    stateRef.current.activeRun = activeRun;
+    resetRef.current();
   }, [activeRun]);
 
   useEffect(() => {
+    stateRef.current.editorMode = editorMode;
+    redrawRef.current();
+  }, [editorMode]);
+
+  useEffect(() => {
+    stateRef.current.currentTool = currentTool;
+  }, [currentTool]);
+
+  useEffect(() => {
+    stateRef.current.selectedEntityId = selectedEntityId;
+    redrawRef.current();
+  }, [selectedEntityId]);
+
+  useEffect(() => {
+    stateRef.current.showTriggers = showTriggers;
+    stateRef.current.showConnectors = showConnectors;
+    redrawRef.current();
+  }, [showTriggers, showConnectors]);
+
+  useEffect(() => {
     stateRef.current.splashActive = true;
+    setShowSplash(true);
     const t = setTimeout(() => {
       stateRef.current.splashActive = false;
       setShowSplash(false);
-      onLogEvent('SCENE', '[Scene 1] Start screen — REACH THE DOOR');
-    }, 1300);
+      onLogEvent('SCENE', `[Run ${stateRef.current.activeRun}] Start screen`);
+    }, 900);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeRun, onLogEvent]);
 
-  useEffect(() => {
-    if (headerTextRef.current) {
-      headerTextRef.current.visible = false;
-    }
-    if (indicatorPanelRef.current) {
-      indicatorPanelRef.current.visible = false;
-    }
-  }, [orientation]);
+  const activeTitle = activeRun === 3 ? 'TRY NEW DOOR' : 'REACH THE DOOR';
 
-  const LevelIndicators = () => {
-    const total = 5;
-    return (
-      <div style={{ display: 'flex', gap: '7px', justifyContent: 'center', marginBottom: '20px' }}>
-        {Array.from({ length: total }).map((_, i) => {
-          const isActive = i < activeRun;
-          return (
-            <div
-              key={i}
-              style={{
-                width: '19px',
-                height: '19px',
-                backgroundColor: isActive ? '#231708' : 'transparent',
-                border: '4px solid #231708',
-                boxSizing: 'border-box',
-              }}
-            />
-          );
-        })}
-      </div>
-    );
-  };
+  const LevelIndicators = () => (
+    <div style={{ display: 'flex', gap: '7px', justifyContent: 'center', marginBottom: '20px' }}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            width: '19px',
+            height: '19px',
+            backgroundColor: i < activeRun ? '#231708' : 'transparent',
+            border: '4px solid #231708',
+            boxSizing: 'border-box',
+          }}
+        />
+      ))}
+    </div>
+  );
 
   const GameTitle = () => (
     <h2
@@ -172,11 +202,11 @@ export default function LevelDevilGame({
         boxSizing: 'border-box',
         padding: 0,
         boxShadow: 'inset 0 -6px 0 rgba(82,47,0,0.22)',
-        ...style
+        ...style,
       }}
     >
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff36b" strokeWidth="3" strokeLinecap="square" strokeLinejoin="miter" style={{ width: '68%', height: '68%', imageRendering: 'pixelated' }}>
-        <polygon points="9 7 5 11 2 11 2 13 5 13 9 17 9 7" fill="#fff36b"/>
+        <polygon points="9 7 5 11 2 11 2 13 5 13 9 17 9 7" fill="#fff36b" />
         {!isMuted && (
           <>
             <path d="M14 8 a 5 5 0 0 1 0 8" />
@@ -185,8 +215,8 @@ export default function LevelDevilGame({
         )}
         {isMuted && (
           <>
-            <line x1="21" y1="9" x2="15" y2="15"/>
-            <line x1="15" y1="9" x2="21" y2="15"/>
+            <line x1="21" y1="9" x2="15" y2="15" />
+            <line x1="15" y1="9" x2="21" y2="15" />
           </>
         )}
       </svg>
@@ -214,7 +244,7 @@ export default function LevelDevilGame({
         boxSizing: 'border-box',
         boxShadow: 'inset 0 -6px 0 #b37111',
         lineHeight: 1,
-        ...style
+        ...style,
       }}
     >
       Install Now
@@ -232,10 +262,15 @@ export default function LevelDevilGame({
     stateRef.current.playerMoved = true;
   };
 
-  // ---- PixiJS scene (built once) ----
   useEffect(() => {
     if (!containerRef.current) return;
     let alive = true;
+    let dragging:
+      | { kind: 'object'; id: string; dx: number; dy: number; display: PIXI.DisplayObject }
+      | { kind: 'trigger'; id: string; dx: number; dy: number; display: PIXI.DisplayObject }
+      | { kind: 'player'; dx: number; display: PIXI.DisplayObject }
+      | { kind: 'door'; dx: number; display: PIXI.DisplayObject }
+      | null = null;
 
     const app = new PIXI.Application({
       width: VIEW_W,
@@ -252,7 +287,6 @@ export default function LevelDevilGame({
     view.style.display = 'block';
     containerRef.current.appendChild(view);
 
-    // Crisp pixel-art textures
     const tex = (src: string) => {
       const t = PIXI.Texture.from(src);
       t.baseTexture.scaleMode = PIXI.SCALE_MODES.NEAREST;
@@ -266,182 +300,239 @@ export default function LevelDevilGame({
     const texDoorSafe = tex(A.doorSafe);
     const texDoorKiller = tex(A.doorKiller);
     const texSpike = tex(A.spike);
+    const texSaw = tex(A.sawblade);
 
     const world = new PIXI.Container();
-    app.stage.addChild(world);
-
     const floorGraphics = new PIXI.Graphics();
-    const spikesContainer = new PIXI.Container();
+    const connectorsLayer = new PIXI.Graphics();
+    const objectsLayer = new PIXI.Container();
+    const triggersLayer = new PIXI.Container();
     const doorContainer = new PIXI.Container();
-    const secondDoorContainer = new PIXI.Container();
-    const indicatorPanel = new PIXI.Graphics();
-
-    // --- Player sprite ---
     const player = new PIXI.Sprite(heroTex.idle);
+    const doorSprite = new PIXI.Sprite(texDoorSafe);
+    const doorEdge = new PIXI.Container();
+
+    app.stage.addChild(world);
+    world.addChild(floorGraphics, connectorsLayer, objectsLayer, triggersLayer, doorContainer, player);
+    app.stage.eventMode = 'static';
+    app.stage.hitArea = app.screen;
+
     player.anchor.set(0.5, 1);
     player.tint = COL_INK;
-
-    world.addChild(floorGraphics, spikesContainer, doorContainer, secondDoorContainer, player, indicatorPanel);
-
-    const setPlayerTexture = (t: PIXI.Texture) => { if (player.texture !== t) player.texture = t; };
-
-    // --- Main door (safe → killer) ---
-    const doorSprite = new PIXI.Sprite(texDoorSafe);
     doorSprite.anchor.set(0.5, 1);
-    doorSprite.scale.set(DOOR_W / 16, DOOR_H / 16); // door.png is 16x16
-    const doorEdge = new PIXI.Container();
-    doorEdge.visible = false;
+    doorSprite.scale.set(DOOR_W / 16, DOOR_H / 16);
     doorContainer.addChild(doorSprite, doorEdge);
 
-    // Spikes framing the door edges (built once, shown when armed)
     const buildEdgeSpikes = () => {
       doorEdge.removeChildren();
       const mk = (x: number, y: number, rot: number) => {
-        const s = new PIXI.Sprite(texSpike); // spike.png is 16x16
+        const s = new PIXI.Sprite(texSpike);
         s.anchor.set(0.5, 1);
         s.tint = 0x8a1f10;
         s.scale.set(14 / 16, 12 / 16);
-        s.x = x; s.y = y; s.rotation = rot;
+        s.x = x;
+        s.y = y;
+        s.rotation = rot;
         doorEdge.addChild(s);
       };
       const hw = DOOR_W / 2;
-      // top (tips up) / bottom (tips down)
-      for (const x of [-13, 0, 13]) { mk(x, -DOOR_H, 0); mk(x, 0, Math.PI); }
-      // left (tips left) / right (tips right)
-      for (const y of [-14, -42]) { mk(-hw, y, -Math.PI / 2); mk(hw, y, Math.PI / 2); }
+      for (const x of [-13, 0, 13]) {
+        mk(x, -DOOR_H, 0);
+        mk(x, 0, Math.PI);
+      }
+      for (const y of [-14, -42]) {
+        mk(-hw, y, -Math.PI / 2);
+        mk(hw, y, Math.PI / 2);
+      }
     };
     buildEdgeSpikes();
 
     const setDoorArmed = (armed: boolean) => {
       doorSprite.texture = armed ? texDoorKiller : texDoorSafe;
       doorSprite.tint = 0xffffff;
-      // door.png = 16x16, door_2.png = 20x23 — scale from known pixel sizes.
       if (armed) doorSprite.scale.set(DOOR_W / 20, DOOR_H / 23);
       else doorSprite.scale.set(DOOR_W / 16, DOOR_H / 16);
       doorEdge.visible = armed;
     };
 
-    // --- Second (safe) door for Run 3 ---
-    const secondDoor = new PIXI.Sprite(texDoorSafe);
-    secondDoor.anchor.set(0.5, 1);
-    secondDoor.scale.set(DOOR_W / 16, DOOR_H / 16);
-    secondDoor.tint = 0x9fe6a8; // hint of green = "safe / new"
-    secondDoorContainer.addChild(secondDoor);
-    secondDoorContainer.visible = false;
-
-    // --- Header text ---
-    const headerText = new PIXI.Text('REACH THE DOOR', {
-      fontFamily: 'Inter, Arial, sans-serif', fontSize: 18, fontWeight: '700',
-      fill: COL_INK, align: 'center', letterSpacing: 1,
-    });
-    headerText.anchor.set(0.5, 0.5);
-    headerText.x = VIEW_W / 2;
-    headerText.y = 78;
-    world.addChild(headerText);
-    headerTextRef.current = headerText;
-    headerText.visible = false;
-
-    indicatorPanelRef.current = indicatorPanel;
-    indicatorPanel.visible = false;
-
-    // --- Level indicator squares ---
-    const drawIndicators = (run: number) => {
-      indicatorPanel.clear();
-      const total = 5, size = 14, gap = 8;
-      const startX = VIEW_W / 2 - (total * size + (total - 1) * gap) / 2;
-      for (let i = 0; i < total; i++) {
-        const x = startX + i * (size + gap);
-        if (i < run) { indicatorPanel.beginFill(COL_INK); indicatorPanel.drawRect(x, 26, size, size); indicatorPanel.endFill(); }
-        else { indicatorPanel.lineStyle(2, COL_INK, 0.5); indicatorPanel.drawRect(x, 26, size, size); indicatorPanel.lineStyle(0); }
-      }
+    const setPlayerTexture = (t: PIXI.Texture) => {
+      if (player.texture !== t) player.texture = t;
     };
 
-    // --- Floor strip ---
     const drawFloor = (collapsed: boolean) => {
-      if (!alive) return;
       floorGraphics.clear();
-      if (!collapsed) {
-        floorGraphics.beginFill(COL_BAND);
-        floorGraphics.drawRect(0, BAND_TOP, VIEW_W, GROUND_Y - BAND_TOP + 8);
-        floorGraphics.endFill();
-        floorGraphics.beginFill(COL_BAND_HI, 0.7);
-        floorGraphics.drawRect(0, BAND_TOP, VIEW_W, 5);
-        floorGraphics.endFill();
-        floorGraphics.beginFill(0x000000, 0.12);
-        floorGraphics.drawRect(0, GROUND_Y + 8, VIEW_W, VIEW_H - GROUND_Y - 8);
-        floorGraphics.endFill();
-      } else {
+      floorGraphics.beginFill(COL_BAND);
+      floorGraphics.drawRect(0, BAND_TOP, VIEW_W, GROUND_Y - BAND_TOP + 8);
+      floorGraphics.endFill();
+      floorGraphics.beginFill(COL_BAND_HI, 0.7);
+      floorGraphics.drawRect(0, BAND_TOP, VIEW_W, 5);
+      floorGraphics.endFill();
+      floorGraphics.beginFill(0x000000, 0.12);
+      floorGraphics.drawRect(0, GROUND_Y + 8, VIEW_W, VIEW_H - GROUND_Y - 8);
+      floorGraphics.endFill();
+
+      const activePits = stateRef.current.config.objects.filter(
+        (object) => object.type === 'pit' && stateRef.current.activeObjectIds.has(object.id),
+      );
+      activePits.forEach((pit) => {
         floorGraphics.beginFill(COL_BG);
-        floorGraphics.drawRect(0, 0, VIEW_W, VIEW_H);
+        floorGraphics.drawRect(pit.x, GROUND_Y - 2, pit.width, VIEW_H - GROUND_Y + 16);
         floorGraphics.endFill();
-        floorGraphics.beginFill(COL_BAND);
-        floorGraphics.drawRect(0, BAND_TOP, 90, GROUND_Y - BAND_TOP + 8);
-        floorGraphics.drawRect(VIEW_W - 90, BAND_TOP, 90, GROUND_Y - BAND_TOP + 8);
+      });
+
+      if (collapsed) {
+        floorGraphics.beginFill(COL_BG);
+        floorGraphics.drawRect(90, GROUND_Y - 2, VIEW_W - 180, VIEW_H - GROUND_Y + 16);
         floorGraphics.endFill();
       }
     };
     drawFloorRef.current = drawFloor;
 
-    // --- Spikes (sprites, live-editable) ---
-    const drawSpikes = () => {
-      if (!alive) return;
-      spikesContainer.removeChildren();
-      stateRef.current.config.spikes.forEach((sx) => {
-        const s = new PIXI.Sprite(texSpike); // 16x16
-        s.anchor.set(0.5, 1);
-        s.tint = COL_INK;
-        s.scale.set(30 / 16, 22 / 16);
-        s.x = sx; s.y = GROUND_Y + 1;
-        spikesContainer.addChild(s);
+    const makeObjectSprite = (object: LevelObject) => {
+      let display: PIXI.DisplayObject;
+      if (object.type === 'spike') {
+        const sprite = new PIXI.Sprite(texSpike);
+        sprite.anchor.set(0.5, 1);
+        sprite.tint = COL_INK;
+        sprite.scale.set(object.width / 16, object.height / 16);
+        display = sprite;
+      } else if (object.type === 'saw') {
+        const sprite = new PIXI.Sprite(texSaw);
+        sprite.anchor.set(0.5);
+        sprite.tint = stateRef.current.activeObjectIds.has(object.id) ? 0xffffff : 0x6b4a21;
+        sprite.scale.set(object.width / 16, object.height / 16);
+        display = sprite;
+      } else {
+        const g = new PIXI.Graphics();
+        const active = stateRef.current.activeObjectIds.has(object.id);
+        g.beginFill(active ? 0x161616 : 0x6b4a21, active ? 0.9 : 0.45);
+        g.drawRect(-object.width / 2, -object.height, object.width, object.height);
+        g.endFill();
+        display = g;
+      }
+      display.x = object.x;
+      display.y = object.y;
+      return display;
+    };
+
+    const drawConnectors = () => {
+      connectorsLayer.clear();
+      const s = stateRef.current;
+      if (s.editorMode !== 'constructor' || !s.showConnectors) return;
+
+      s.config.triggers.forEach((trigger) => {
+        const target = s.config.objects.find((object) => object.id === trigger.targetId);
+        const tx = trigger.x + trigger.width / 2;
+        const ty = trigger.y + trigger.height / 2;
+        const ox = target ? target.x : s.config.doorSpawnX;
+        const oy = target ? target.y - target.height / 2 : GROUND_Y - DOOR_H / 2;
+        connectorsLayer.lineStyle(2, COL_CONNECTOR, 0.8);
+        connectorsLayer.moveTo(tx, ty);
+        connectorsLayer.lineTo(ox, oy);
+        connectorsLayer.beginFill(COL_CONNECTOR, 1);
+        connectorsLayer.drawCircle(ox, oy, 4);
+        connectorsLayer.endFill();
       });
     };
-    drawSpikesRef.current = drawSpikes;
 
-    // --- Full level draw / reset ---
-    const drawLevel = () => {
+    const drawTriggers = () => {
+      triggersLayer.removeChildren();
+      const s = stateRef.current;
+      if (s.editorMode !== 'constructor' || !s.showTriggers) return;
+
+      s.config.triggers.forEach((trigger) => {
+        const g = new PIXI.Graphics();
+        const selected = s.selectedEntityId === trigger.id;
+        g.beginFill(COL_TRIGGER, selected ? 0.28 : 0.16);
+        g.lineStyle(selected ? 4 : 2, selected ? 0xffffff : COL_TRIGGER, 0.9);
+        g.drawRect(0, 0, trigger.width, trigger.height);
+        g.endFill();
+        g.x = trigger.x;
+        g.y = trigger.y;
+        g.eventMode = 'static';
+        g.cursor = 'move';
+        g.on('pointerdown', (e: any) => {
+          if (stateRef.current.editorMode !== 'constructor') return;
+          const p = e.data.getLocalPosition(world);
+          dragging = { kind: 'trigger', id: trigger.id, dx: p.x - trigger.x, dy: p.y - trigger.y, display: g };
+          onSelectEntity(trigger.id);
+        });
+        triggersLayer.addChild(g);
+      });
+    };
+
+    const drawObjects = () => {
+      objectsLayer.removeChildren();
+      const s = stateRef.current;
+
+      s.config.objects.forEach((object) => {
+        const display = makeObjectSprite(object);
+        const selected = s.selectedEntityId === object.id;
+        if ('alpha' in display) display.alpha = stateRef.current.activeObjectIds.has(object.id) || object.type === 'spike' ? 1 : 0.6;
+
+        if (s.editorMode === 'constructor') {
+          display.eventMode = 'static';
+          display.cursor = 'move';
+          display.on('pointerdown', (e: any) => {
+            const p = e.data.getLocalPosition(world);
+            dragging = { kind: 'object', id: object.id, dx: p.x - object.x, dy: p.y - object.y, display };
+            onSelectEntity(object.id);
+          });
+
+          const outline = new PIXI.Graphics();
+          outline.lineStyle(selected ? 4 : 2, selected ? 0xffffff : 0x000000, selected ? 0.9 : 0.35);
+          outline.drawRect(-object.width / 2, -object.height, object.width, object.height);
+          outline.x = object.x;
+          outline.y = object.y;
+          objectsLayer.addChild(outline);
+        }
+
+        objectsLayer.addChild(display);
+      });
+    };
+
+    const drawScene = () => {
       if (!alive) return;
       const s = stateRef.current;
+      const activeIds = new Set<string>();
+      s.config.objects.forEach((object) => {
+        if (object.initiallyActive) activeIds.add(object.id);
+      });
+      s.activeObjectIds.forEach((id) => activeIds.add(id));
+      s.activeObjectIds = activeIds;
+
       drawFloor(s.floorCollapsed);
+      drawObjects();
+      drawTriggers();
+      drawConnectors();
 
       player.x = s.config.playerSpawnX;
       player.y = GROUND_Y;
       player.alpha = 1;
-      s.facing = 1;
-      s.animTimer = 0;
       setPlayerTexture(heroTex.idle);
       player.scale.set(PLAYER_SCALE, PLAYER_SCALE);
-      s.spawnFrames = 10;
 
       doorContainer.x = s.config.doorSpawnX;
       doorContainer.y = GROUND_Y;
-      doorContainer.rotation = 0;
-      setDoorArmed(false);
+      setDoorArmed(s.activeRun === 2 || s.activeRun === 3 || s.doorTriggered);
 
-      drawSpikes();
-      drawIndicators(s.activeRun);
-
-      if (s.activeRun === 2) {
-        setDoorArmed(true);
-        headerText.text = 'REACH THE DOOR';
-        secondDoorContainer.visible = false;
-      } else if (s.activeRun === 3) {
-        headerText.text = 'TRY NEW DOOR';
-        secondDoorContainer.x = (s.config.playerSpawnX + s.config.doorSpawnX) / 2 - 40;
-        secondDoorContainer.y = GROUND_Y;
-        secondDoorContainer.visible = true;
-        setDoorArmed(true); // killer door already armed, waiting
+      if (s.editorMode === 'constructor') {
+        player.eventMode = 'static';
+        player.cursor = 'move';
+        doorContainer.eventMode = 'static';
+        doorContainer.cursor = 'move';
       } else {
-        headerText.text = 'REACH THE DOOR';
-        secondDoorContainer.visible = false;
+        player.eventMode = 'none';
+        doorContainer.eventMode = 'none';
       }
     };
+    redrawRef.current = drawScene;
 
     const doReset = () => {
-      if (!alive) return;
       const s = stateRef.current;
       s.isDead = false;
       s.isDyingAnim = false;
-      s.doorTriggered = false;
+      s.doorTriggered = s.activeRun === 3;
       s.doorTimer = 0;
       s.doorCurrentSpeed = s.config.doorBaseSpeed;
       s.doorVelX = 0;
@@ -454,15 +545,17 @@ export default function LevelDevilGame({
       s.playerVelX = 0;
       s.isGrounded = false;
       s.playerMoved = false;
+      s.spawnFrames = 10;
+      s.activeObjectIds = new Set(s.config.objects.filter((object) => object.initiallyActive).map((object) => object.id));
+      s.firedTriggerIds = new Set();
       setIsSkipVisible(false);
       setIsCtaVisible(false);
-      onLogEvent('INFO', `[Game] Reset — Run ${s.activeRun}`);
-      drawLevel();
+      drawScene();
+      onLogEvent('INFO', `[Game] Reset - Run ${s.activeRun}`);
     };
-    resetGameRef.current = doReset;
+    resetRef.current = doReset;
 
-    // --- Death + respawn ---
-    const triggerDeath = (cause: 'SAW' | 'SPIKE' | 'PIT' | 'REDIRECT') => {
+    const triggerDeath = (cause: DeathCause) => {
       const s = stateRef.current;
       if (s.isDead) return;
       s.isDead = true;
@@ -477,7 +570,6 @@ export default function LevelDevilGame({
       }
 
       onLogEvent('DEATH', `[Death] Player killed by ${cause} (Run ${s.activeRun})`);
-      // squash
       setPlayerTexture(heroTex.idle);
       player.scale.set(s.facing * PLAYER_SCALE, 0.4 * PLAYER_SCALE);
 
@@ -485,50 +577,161 @@ export default function LevelDevilGame({
       const shakeTimer = setInterval(() => {
         world.x = (Math.random() - 0.5) * 12;
         world.y = (Math.random() - 0.5) * 12;
-        if (++shake > 12) { clearInterval(shakeTimer); world.x = 0; world.y = 0; }
+        if (++shake > 12) {
+          clearInterval(shakeTimer);
+          world.x = 0;
+          world.y = 0;
+        }
       }, 25);
 
       setTimeout(() => {
         s.isDyingAnim = false;
-        const sawDoorInRun1 = s.activeRun === 1 && s.doorTriggered;
         const resolvedSkipTrap = s.activeRun === 2 && s.skipClicked && cause === 'PIT';
-        const resolvedDoorTrap = (s.activeRun === 1 || s.activeRun === 2) && cause === 'SAW';
+        const resolvedDoorTrap = (s.activeRun === 1 || s.activeRun === 2) && cause === 'SAW' && s.doorTriggered;
 
-        if (s.activeRun === 1 && (sawDoorInRun1 || resolvedDoorTrap)) onRunComplete(2);
+        if (s.activeRun === 1 && resolvedDoorTrap) onRunComplete(2);
         else if (s.activeRun === 2 && (resolvedSkipTrap || resolvedDoorTrap)) onRunComplete(3);
         else doReset();
-      }, 1100);
+      }, 900);
     };
     triggerDeathRef.current = triggerDeath;
 
-    // --- Canvas pointer: edit spikes / Run 3 tap-to-store ---
-    floorGraphics.eventMode = 'static';
-    floorGraphics.on('pointerdown', (e) => {
+    const activateTrigger = (trigger: TriggerZone) => {
       const s = stateRef.current;
-      if (s.activeRun === 3 && !s.endcardActive && !s.splashActive) {
-        triggerDeath('REDIRECT');
+      if (s.firedTriggerIds.has(trigger.id)) return;
+      s.firedTriggerIds.add(trigger.id);
+
+      if (trigger.action === 'startDoorChase') {
+        s.doorTriggered = true;
+        setDoorArmed(true);
+        onLogEvent('TRAP_ACTIVATE', `[Trigger] ${trigger.label} started door chase`);
+      } else {
+        s.activeObjectIds.add(trigger.targetId);
+        const target = s.config.objects.find((object) => object.id === trigger.targetId);
+        onLogEvent('TRAP_ACTIVATE', `[Trigger] ${trigger.label} activated ${target?.label || trigger.targetId}`);
+      }
+      drawScene();
+    };
+
+    floorGraphics.eventMode = 'static';
+    floorGraphics.cursor = 'crosshair';
+    floorGraphics.on('pointerdown', (e: any) => {
+      const s = stateRef.current;
+      if (s.editorMode !== 'constructor') return;
+      const local = e.data.getLocalPosition(world);
+      const x = Math.round(clamp(local.x, 20, VIEW_W - 20));
+
+      if (s.currentTool === 'select') {
+        onSelectEntity(null);
         return;
       }
-      if (s.currentTool === 'view') return;
-      const local = e.data.getLocalPosition(world);
-      const cx = Math.round(local.x);
-      if (local.y < BAND_TOP || local.y > GROUND_Y + 12) return;
-      if (s.currentTool === 'spike') {
-        if (!s.config.spikes.some((sx) => Math.abs(sx - cx) < 22)) {
-          const next = [...s.config.spikes, cx].sort((a, b) => a - b);
-          onConfigChange({ ...s.config, spikes: next });
-          onLogEvent('SPIKE_ADD', `Placed spike at X:${cx}`);
+
+      if (s.currentTool === 'erase') {
+        const nearestObject = s.config.objects.find((object) => Math.abs(object.x - x) < 28 && Math.abs(object.y - local.y) < 50);
+        const nearestTrigger = s.config.triggers.find((trigger) =>
+          local.x >= trigger.x && local.x <= trigger.x + trigger.width && local.y >= trigger.y && local.y <= trigger.y + trigger.height,
+        );
+        if (nearestObject) {
+          const next = cloneConfig(s.config);
+          next.objects = next.objects.filter((object) => object.id !== nearestObject.id);
+          next.triggers = next.triggers.filter((trigger) => trigger.targetId !== nearestObject.id);
+          onConfigChange(next);
+          onLogEvent('OBJECT_DELETE', `Deleted ${nearestObject.label}`);
+        } else if (nearestTrigger) {
+          const next = cloneConfig(s.config);
+          next.triggers = next.triggers.filter((trigger) => trigger.id !== nearestTrigger.id);
+          onConfigChange(next);
+          onLogEvent('TRIGGER_DELETE', `Deleted ${nearestTrigger.label}`);
         }
-      } else if (s.currentTool === 'erase') {
-        const next = s.config.spikes.filter((sx) => Math.abs(sx - cx) >= 22);
-        if (next.length !== s.config.spikes.length) {
-          onConfigChange({ ...s.config, spikes: next });
-          onLogEvent('SPIKE_ERASE', `Erased spike near X:${cx}`);
-        }
+        return;
+      }
+
+      const next = cloneConfig(s.config);
+      const id = `${s.currentTool}-${Date.now().toString(36)}`;
+      if (s.currentTool === 'trigger') {
+        const target = next.objects[0];
+        next.triggers.push({
+          id,
+          x: x - 35,
+          y: GROUND_Y - 110,
+          width: 70,
+          height: 110,
+          targetId: target?.id || 'door',
+          action: target?.type === 'pit' ? 'openPit' : 'activate',
+          label: `Trigger ${next.triggers.length + 1}`,
+        });
+      } else {
+        const type = s.currentTool;
+        next.objects.push({
+          id,
+          type,
+          x,
+          y: GROUND_Y + (type === 'saw' ? -36 : 1),
+          width: type === 'pit' ? 90 : type === 'saw' ? 36 : 30,
+          height: type === 'pit' ? 42 : type === 'saw' ? 36 : 22,
+          label: `${type[0].toUpperCase()}${type.slice(1)} ${next.objects.length + 1}`,
+          initiallyActive: type === 'spike',
+        });
+      }
+      onConfigChange(next);
+      onSelectEntity(id);
+      onLogEvent('OBJECT_ADD', `Placed ${s.currentTool} at X:${x}`);
+    });
+
+    player.on('pointerdown', (e: any) => {
+      if (stateRef.current.editorMode !== 'constructor') return;
+      const p = e.data.getLocalPosition(world);
+      dragging = { kind: 'player', dx: p.x - stateRef.current.config.playerSpawnX, display: player };
+      onSelectEntity('playerSpawn');
+    });
+
+    doorContainer.on('pointerdown', (e: any) => {
+      if (stateRef.current.editorMode !== 'constructor') return;
+      const p = e.data.getLocalPosition(world);
+      dragging = { kind: 'door', dx: p.x - stateRef.current.config.doorSpawnX, display: doorContainer };
+      onSelectEntity('door');
+    });
+
+    app.stage.on('pointermove', (e: any) => {
+      if (!dragging) return;
+      const p = e.data.getLocalPosition(world);
+      if (dragging.kind === 'object') {
+        dragging.display.x = clamp(p.x - dragging.dx, 20, VIEW_W - 20);
+        dragging.display.y = clamp(p.y - dragging.dy, BAND_TOP + 24, GROUND_Y + 1);
+      } else if (dragging.kind === 'trigger') {
+        dragging.display.x = clamp(p.x - dragging.dx, 0, VIEW_W - 20);
+        dragging.display.y = clamp(p.y - dragging.dy, BAND_TOP, GROUND_Y - 20);
+      } else if (dragging.kind === 'player') {
+        dragging.display.x = clamp(p.x - dragging.dx, 40, VIEW_W - 40);
+      } else if (dragging.kind === 'door') {
+        dragging.display.x = clamp(p.x - dragging.dx, 80, VIEW_W - 40);
       }
     });
 
-    // --- Keyboard ---
+    const finishDrag = () => {
+      if (!dragging) return;
+      const next = cloneConfig(stateRef.current.config);
+      if (dragging.kind === 'object') {
+        const drag = dragging;
+        next.objects = next.objects.map((object) =>
+          object.id === drag.id ? { ...object, x: Math.round(drag.display.x), y: Math.round(drag.display.y) } : object,
+        );
+      } else if (dragging.kind === 'trigger') {
+        const drag = dragging;
+        next.triggers = next.triggers.map((trigger) =>
+          trigger.id === drag.id ? { ...trigger, x: Math.round(drag.display.x), y: Math.round(drag.display.y) } : trigger,
+        );
+      } else if (dragging.kind === 'player') {
+        next.playerSpawnX = Math.round(dragging.display.x);
+      } else if (dragging.kind === 'door') {
+        next.doorSpawnX = Math.round(dragging.display.x);
+      }
+      dragging = null;
+      onConfigChange(next);
+    };
+    app.stage.on('pointerup', finishDrag);
+    app.stage.on('pointerupoutside', finishDrag);
+
     const onKeyDown = (e: KeyboardEvent) => {
       stateRef.current.keys[e.code] = true;
       const move = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'ArrowUp', 'KeyW'].includes(e.code);
@@ -537,23 +740,28 @@ export default function LevelDevilGame({
         triggerDeath('REDIRECT');
       }
     };
-    const onKeyUp = (e: KeyboardEvent) => { delete stateRef.current.keys[e.code]; };
+    const onKeyUp = (e: KeyboardEvent) => {
+      delete stateRef.current.keys[e.code];
+    };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    // --- Main loop ---
     const ticker = (tickerObj: any) => {
       const delta = typeof tickerObj === 'number' ? tickerObj : (tickerObj?.deltaTime ?? 1);
       const s = stateRef.current;
 
-      // Menacing wobble while the door is armed
       doorContainer.rotation = doorEdge.visible ? Math.sin(Date.now() / 90) * 0.04 : 0;
 
-      if (s.paused || s.splashActive || s.isDead || s.isDyingAnim) return;
+      if (s.editorMode === 'constructor') {
+        return;
+      }
 
-      if (player.y > VIEW_H + 40) { triggerDeath('PIT'); return; }
+      if (s.splashActive || s.isDead || s.isDyingAnim) return;
+      if (player.y > VIEW_H + 40) {
+        triggerDeath('PIT');
+        return;
+      }
 
-      // Input
       s.playerVelX = 0;
       if (s.keys['ArrowLeft'] || s.keys['KeyA']) s.playerVelX = -s.config.playerSpeed;
       if (s.keys['ArrowRight'] || s.keys['KeyD']) s.playerVelX = s.config.playerSpeed;
@@ -562,101 +770,129 @@ export default function LevelDevilGame({
         s.isGrounded = false;
       }
 
-      // Physics
       s.playerVelY += s.config.gravity * delta;
       player.x += s.playerVelX * delta;
       player.y += s.playerVelY * delta;
-      if (player.x < 50) player.x = 50;
-      if (player.x > VIEW_W - 50) player.x = VIEW_W - 50;
+      player.x = clamp(player.x, 50, VIEW_W - 50);
 
-      // Ceiling
       if (player.y - PLAYER_H < BAND_TOP) {
         player.y = BAND_TOP + PLAYER_H;
         if (s.playerVelY < 0) s.playerVelY = 0;
       }
 
-      // Grounding
+      const inOpenPit = s.config.objects.some(
+        (object) =>
+          object.type === 'pit' &&
+          s.activeObjectIds.has(object.id) &&
+          player.x > object.x &&
+          player.x < object.x + object.width &&
+          player.y >= GROUND_Y - 4,
+      );
+
       if (player.y >= GROUND_Y) {
-        if (!s.floorCollapsed) { player.y = GROUND_Y; s.playerVelY = 0; s.isGrounded = true; }
-        else s.isGrounded = false;
+        if (!s.floorCollapsed && !inOpenPit) {
+          player.y = GROUND_Y;
+          s.playerVelY = 0;
+          s.isGrounded = true;
+        } else {
+          s.isGrounded = false;
+        }
       }
 
-      // Player animation (texture frames) + facing + respawn pop
       if (s.playerVelX < 0) s.facing = -1;
       else if (s.playerVelX > 0) s.facing = 1;
       if (!s.isGrounded) setPlayerTexture(heroTex.jump);
       else if (s.playerVelX !== 0) {
         s.animTimer += delta;
         setPlayerTexture(heroTex.run[Math.floor(s.animTimer / 5) % 4]);
-      } else { s.animTimer = 0; setPlayerTexture(heroTex.idle); }
+      } else {
+        s.animTimer = 0;
+        setPlayerTexture(heroTex.idle);
+      }
       const pop = s.spawnFrames > 0 ? 0.4 + 0.6 * (1 - s.spawnFrames / 10) : 1;
       if (s.spawnFrames > 0) s.spawnFrames--;
       player.scale.set(s.facing * pop * PLAYER_SCALE, pop * PLAYER_SCALE);
 
-      // Floor spikes
-      for (const sx of s.config.spikes) {
-        if (Math.abs(player.x - sx) < 15 && player.y > GROUND_Y - 12) { triggerDeath('SPIKE'); return; }
+      const playerRect = { x: player.x - 10, y: player.y - PLAYER_H, w: 20, h: PLAYER_H };
+
+      s.config.triggers.forEach((trigger) => {
+        if (
+          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, trigger.x, trigger.y, trigger.width, trigger.height)
+        ) {
+          activateTrigger(trigger);
+        }
+      });
+
+      for (const object of s.config.objects) {
+        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        if (!active) continue;
+        if (object.type === 'spike' && Math.abs(player.x - object.x) < object.width / 2 && player.y > GROUND_Y - 12) {
+          triggerDeath('SPIKE');
+          return;
+        }
+        if (
+          object.type === 'saw' &&
+          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, object.x - object.width / 2, object.y - object.height / 2, object.width, object.height)
+        ) {
+          triggerDeath('SAW');
+          return;
+        }
       }
 
-      // RUN 1 & 2 — armed door hunts the player with inertia (rises on jumps,
-      // overshoots when the player doubles back). Run 2 also reveals SKIP LEVEL.
       if (s.activeRun === 1 || s.activeRun === 2) {
-        if (s.activeRun === 1) {
-          if (!s.doorTriggered && doorContainer.x - player.x < s.config.triggerDistance) {
-            s.doorTriggered = true;
-            setDoorArmed(true);
-            onLogEvent('TRAP_ACTIVATE', `[Trap] Door armed with edge spikes and started hunting (Run 1)`);
-          }
-        } else { // Run 2
-          // On level 2, the door already has spikes but only starts chasing after first action (playerMoved)
-          if (!s.doorTriggered && s.playerMoved) {
-            s.doorTriggered = true;
-            setDoorArmed(true);
-            onLogEvent('TRAP_ACTIVATE', `[Trap] Door already spiked starts hunting after first action (Run 2)`);
-          }
+        const hasDoorTrigger = s.config.triggers.some((trigger) => trigger.action === 'startDoorChase');
+        if (s.activeRun === 1 && !hasDoorTrigger && !s.doorTriggered && doorContainer.x - player.x < s.config.triggerDistance) {
+          s.doorTriggered = true;
+          setDoorArmed(true);
+          onLogEvent('TRAP_ACTIVATE', '[Trap] Door armed by proximity');
+        }
+        if (s.activeRun === 2 && !s.doorTriggered && s.playerMoved) {
+          s.doorTriggered = true;
+          setDoorArmed(true);
+          onLogEvent('TRAP_ACTIVATE', '[Trap] Door starts hunting after first action');
         }
         if (s.doorTriggered) {
           s.doorTimer += (1 / 60) * delta;
-          
-          // Gradually increase door speed over time to guarantee killing the player
-          s.doorCurrentSpeed = s.config.doorBaseSpeed + (s.doorTimer * 1.5);
-          if (s.doorTimer > 3.0) {
-            s.doorCurrentSpeed += (s.doorTimer - 3.0) * 3.5;
-          }
+          s.doorCurrentSpeed = Math.min(s.config.doorAccelSpeed + s.doorTimer * 1.5, s.config.doorAccelSpeed + 7);
 
           if (s.activeRun === 2 && s.doorTimer > s.config.skipButtonDelay && !s.skipClicked && !s.skipButtonActive) {
             s.skipButtonActive = true;
             setIsSkipVisible(true);
             onLogEvent('SKIP_SHOW', '[Trap] SKIP LEVEL button revealed');
           }
+
           const maxSp = s.doorCurrentSpeed;
           const accel = s.config.doorHoming;
           s.doorVelX += Math.sign(player.x - doorContainer.x) * accel * delta;
           s.doorVelY += Math.sign((player.y - 16) - (doorContainer.y + DOOR_CY)) * accel * delta;
-          s.doorVelX = Math.max(-maxSp, Math.min(maxSp, s.doorVelX));
-          s.doorVelY = Math.max(-maxSp, Math.min(maxSp, s.doorVelY));
-          s.doorVelX *= 0.97; s.doorVelY *= 0.97;
+          s.doorVelX = clamp(s.doorVelX, -maxSp, maxSp);
+          s.doorVelY = clamp(s.doorVelY, -maxSp, maxSp);
+          s.doorVelX *= 0.97;
+          s.doorVelY *= 0.97;
           doorContainer.x += s.doorVelX * delta;
           doorContainer.y += s.doorVelY * delta;
-          doorContainer.x = Math.max(40, Math.min(VIEW_W - 40, doorContainer.x));
-          doorContainer.y = Math.max(BAND_TOP + 40, Math.min(GROUND_Y, doorContainer.y));
+          doorContainer.x = clamp(doorContainer.x, 40, VIEW_W - 40);
+          doorContainer.y = clamp(doorContainer.y, BAND_TOP + 40, GROUND_Y);
           const ddx = doorContainer.x - player.x;
-          const ddy = (doorContainer.y + DOOR_CY) - (player.y - 16);
-          if (Math.hypot(ddx, ddy) < 30) { triggerDeath('SAW'); return; }
+          const ddy = doorContainer.y + DOOR_CY - (player.y - 16);
+          if (Math.hypot(ddx, ddy) < 30) {
+            triggerDeath('SAW');
+            return;
+          }
         }
       }
 
-      // RUN 3 — endcard scene: any input or reaching the new door → store.
       if (s.activeRun === 3 && !s.endcardActive) {
         const moving = !!(s.keys['ArrowLeft'] || s.keys['KeyA'] || s.keys['ArrowRight'] || s.keys['KeyD'] ||
           s.keys['Space'] || s.keys['ArrowUp'] || s.keys['KeyW']);
-        const atDoor = Math.abs(player.x - secondDoorContainer.x) < 24 && player.y > GROUND_Y - 40;
-        if (moving || atDoor) { triggerDeath('REDIRECT'); return; }
+        if (moving) {
+          triggerDeath('REDIRECT');
+        }
       }
     };
 
     app.ticker.add(ticker);
-    drawLevel();
+    doReset();
 
     return () => {
       alive = false;
@@ -669,14 +905,13 @@ export default function LevelDevilGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orientation]);
 
-  // --- SKIP LEVEL trap: collapse the floor ---
   const executeSkipAction = () => {
     const s = stateRef.current;
     if (!s.skipButtonActive || s.skipClicked) return;
     s.skipClicked = true;
     s.floorCollapsed = true;
     setIsSkipVisible(false);
-    onLogEvent('SKIP_CLICK', '[Skip Clicked] Fake SKIP LEVEL — floor collapses!');
+    onLogEvent('SKIP_CLICK', '[Skip Clicked] Fake SKIP LEVEL - floor collapses');
     drawFloorRef.current(true);
   };
 
@@ -687,26 +922,16 @@ export default function LevelDevilGame({
       triggerDeathRef.current?.('REDIRECT');
     }
   };
-  const release = (key: string) => { delete stateRef.current.keys[key]; };
-
-  const togglePause = () => {
-    const next = !stateRef.current.paused;
-    stateRef.current.paused = next;
-    setIsPaused(next);
+  const release = (key: string) => {
+    delete stateRef.current.keys[key];
   };
 
-  const playFromStart = () => {
-    stateRef.current.paused = false;
-    setIsPaused(false);
-    setShowHand(true);
-    onRunComplete(1);
-    resetGameRef.current();
-    onLogEvent('PLAY', '[Play] Playable restarted from the beginning');
-  };
-
-  // On-screen control built from the real game button sprites (hollow ↔ filled).
   const ControlButton = ({ keyCode, hollow, filled, label, width }: {
-    keyCode: string; hollow: string; filled: string; label: string; width: number | string;
+    keyCode: string;
+    hollow: string;
+    filled: string;
+    label: string;
+    width: number | string;
   }) => (
     <img
       src={hollow}
@@ -723,15 +948,17 @@ export default function LevelDevilGame({
 
   const INK = '#231708';
   const overlayCenter: CSSProperties = {
-    position: 'absolute', inset: 0, zIndex: 40, display: 'flex',
-    flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    position: 'absolute',
+    inset: 0,
+    zIndex: 40,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
   };
   const pix: CSSProperties = { imageRendering: 'pixelated' };
   const isPortrait = orientation === 'vertical';
-  const stageButtonBase: CSSProperties = {
-    position: 'absolute',
-    zIndex: 20,
-  };
+  const stageButtonBase: CSSProperties = { position: 'absolute', zIndex: 20 };
   const levelViewportStyle: CSSProperties = {
     position: 'absolute',
     left: '23.4375%',
@@ -760,25 +987,11 @@ export default function LevelDevilGame({
           backgroundColor: '#c77b00',
         }}
       >
-        <div
-          style={{
-            ...stageButtonBase,
-            left: isPortrait ? '40.6%' : '40.6%',
-            top: isPortrait ? '9.7%' : '24.4%',
-            width: '18.8%',
-          }}
-        >
+        <div style={{ ...stageButtonBase, left: '40.6%', top: isPortrait ? '9.7%' : '24.4%', width: '18.8%' }}>
           <LevelIndicators />
         </div>
 
-        <div
-          style={{
-            ...stageButtonBase,
-            left: isPortrait ? '19%' : '22%',
-            top: isPortrait ? '21.7%' : '31%',
-            width: isPortrait ? '62%' : '56%',
-          }}
-        >
+        <div style={{ ...stageButtonBase, left: isPortrait ? '19%' : '22%', top: isPortrait ? '21.7%' : '31%', width: isPortrait ? '62%' : '56%' }}>
           <GameTitle />
         </div>
 
@@ -786,81 +999,50 @@ export default function LevelDevilGame({
           <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
         </div>
 
-        <div
-          style={{
-            ...stageButtonBase,
-            left: isPortrait ? '25.6%' : '3.75%',
-            top: isPortrait ? '89.5%' : '25.5%',
-            width: '6.7%',
-            aspectRatio: '1 / 1',
-          }}
-        >
+        <div style={{ ...stageButtonBase, left: isPortrait ? '25.6%' : '3.75%', top: isPortrait ? '89.5%' : '25.5%', width: '6.7%', aspectRatio: '1 / 1' }}>
           <SoundButton style={{ width: '100%', height: '100%' }} />
         </div>
 
-        <div
-          style={{
-            ...stageButtonBase,
-            left: isPortrait ? '54.4%' : '76.25%',
-            top: isPortrait ? '89.5%' : '25.5%',
-            width: '20%',
-            height: '6.1%',
-          }}
-        >
+        <div style={{ ...stageButtonBase, left: isPortrait ? '54.4%' : '76.25%', top: isPortrait ? '89.5%' : '25.5%', width: '20%', height: '6.1%' }}>
           <InstallButton style={{ width: '100%', height: '100%', padding: 0, fontSize: 'clamp(8px, 1.55vw, 11px)', whiteSpace: 'nowrap' }} />
         </div>
 
-        <div
-          style={{
-            ...stageButtonBase,
-            left: isPortrait ? '25.9%' : '5%',
-            top: isPortrait ? '75.8%' : '68.8%',
-            width: '12%',
-          }}
-        >
+        <div style={{ ...stageButtonBase, left: isPortrait ? '25.9%' : '5%', top: isPortrait ? '75.8%' : '68.8%', width: '12%' }}>
           <ControlButton keyCode="ArrowLeft" hollow={A.btnLeftHollow} filled={A.btnLeftFilled} label="Move left" width="100%" />
         </div>
 
-        <div
-          style={{
-            ...stageButtonBase,
-            left: isPortrait ? '42.3%' : '21.25%',
-            top: isPortrait ? '75.8%' : '68.8%',
-            width: '12%',
-          }}
-        >
+        <div style={{ ...stageButtonBase, left: isPortrait ? '42.3%' : '21.25%', top: isPortrait ? '75.8%' : '68.8%', width: '12%' }}>
           <ControlButton keyCode="ArrowRight" hollow={A.btnRightHollow} filled={A.btnRightFilled} label="Move right" width="100%" />
         </div>
 
-        <div
-          style={{
-            ...stageButtonBase,
-            left: isPortrait ? '62.2%' : '83.2%',
-            top: isPortrait ? '75.8%' : '68.8%',
-            width: '12%',
-          }}
-        >
+        <div style={{ ...stageButtonBase, left: isPortrait ? '62.2%' : '83.2%', top: isPortrait ? '75.8%' : '68.8%', width: '12%' }}>
           <ControlButton keyCode="Space" hollow={A.btnJumpHollow} filled={A.btnJumpFilled} label="Jump" width="100%" />
         </div>
 
-        {showHand && !showSplash && (
+        {showHand && !showSplash && editorMode === 'play' && (
           <div style={{ position: 'absolute', top: '63%', left: '28%', zIndex: 25, fontSize: 28, pointerEvents: 'none', animation: 'ld-bounce 1s infinite', filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.3))' }}>
-            👆
+            TAP
           </div>
         )}
 
         {isSkipVisible && (
           <div style={{ position: 'absolute', left: 0, right: 0, top: '31%', display: 'flex', justifyContent: 'center', zIndex: 30, animation: 'ld-bounce 0.9s infinite' }}>
             <img src={A.btnSkip} alt="Skip level" onClick={executeSkipAction}
-              style={{ ...pix, width: '24%', cursor: 'pointer', filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.45))' }} />
+              style={{ ...pix, width: '18%', cursor: 'pointer', filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.45))' }} />
           </div>
         )}
 
-        {showSplash && (
+        {showSplash && editorMode === 'play' && (
           <div style={{ ...overlayCenter, background: 'radial-gradient(circle at 50% 42%, #d18a20, #8d4f0d)' }}>
-            <div style={{ fontSize: 52, marginBottom: 8 }}>😈</div>
+            <div style={{ fontSize: 52, marginBottom: 8 }}>LVL</div>
             <div style={{ fontSize: 26, fontFamily: '"Press Start 2P", monospace', fontWeight: 'normal', color: INK, textAlign: 'center', lineHeight: '36px' }}>LEVEL DEVIL</div>
             <div style={{ marginTop: 12, fontSize: 11, fontFamily: '"Press Start 2P", monospace', fontWeight: 'normal', letterSpacing: 0, color: 'rgba(35,23,8,0.7)' }}>{activeTitle}</div>
+          </div>
+        )}
+
+        {editorMode === 'constructor' && (
+          <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 35, color: '#231708', fontFamily: '"Press Start 2P", monospace', fontSize: 9, background: 'rgba(255,193,100,0.86)', padding: '8px 10px' }}>
+            CONSTRUCTOR MODE
           </div>
         )}
 
@@ -875,7 +1057,7 @@ export default function LevelDevilGame({
               style={{ padding: '14px 20px', background: '#10b981', color: '#fff', fontFamily: '"Press Start 2P", monospace', fontSize: 12, border: 'none', borderBottom: '4px solid #047857', borderRadius: 4, width: '100%', maxWidth: 260, cursor: 'pointer' }}>
               PLAY NOW
             </button>
-            <span style={{ color: '#71717a', fontSize: 9, marginTop: 16, letterSpacing: 1, textTransform: 'uppercase' }}>Free Playable • Ad Endcard</span>
+            <span style={{ color: '#71717a', fontSize: 9, marginTop: 16, letterSpacing: 1, textTransform: 'uppercase' }}>Free Playable - Ad Endcard</span>
           </div>
         )}
       </div>
@@ -886,9 +1068,14 @@ export default function LevelDevilGame({
 interface LevelDevilGameProps {
   config: GameConfig;
   activeRun: ActiveRun;
+  editorMode: EditorMode;
   currentTool: EditorTool;
   orientation: 'horizontal' | 'vertical';
+  selectedEntityId: string | null;
+  showTriggers: boolean;
+  showConnectors: boolean;
   onConfigChange: (config: GameConfig) => void;
+  onSelectEntity: (id: string | null) => void;
   onLogEvent: (type: string, msg: string) => void;
   onRunComplete: (nextRun: ActiveRun) => void;
   onDeath: () => void;
