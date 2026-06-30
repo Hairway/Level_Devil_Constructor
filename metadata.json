@@ -1,0 +1,6 @@
+{
+  "name": "Level Devil Editor & Playable",
+  "description": "An interactive Playable Ad simulation and Level Editor for the popular Level Devil game, built with React, PixiJS, and Tailwind CSS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
