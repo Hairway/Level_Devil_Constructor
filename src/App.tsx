@@ -10,6 +10,7 @@ import {
   TriggerZone,
 } from './types';
 import LevelDevilGame from './components/LevelDevilGame';
+import { generateStandalonePlayable } from './exportPlayable';
 import {
   Boxes,
   Check,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react';
 
 const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+const STORAGE_KEY = 'level-devil-constructor-state-v2';
 
 const baseObjects = (): LevelObject[] => [
   {
@@ -171,6 +173,31 @@ const createInitialProject = (): PlayableProject => {
   };
 };
 
+const normalizeProject = (raw: Partial<PlayableProject>, index = 0): PlayableProject => ({
+  id: raw.id || makeId('playable'),
+  name: raw.name || `Level_Devil_play${String(index + 1).padStart(3, '0')}_01`,
+  runs: Array.isArray(raw.runs) && raw.runs.length > 0
+    ? raw.runs.map((run, runIndex) => ({
+        id: run.id || makeId('run'),
+        name: run.name || `Run ${runIndex + 1}`,
+        config: normalizeConfig(run.config || {}),
+      }))
+    : [createRun('Run 1', createDefaultConfig())],
+});
+
+const loadSavedProjects = (): PlayableProject[] => {
+  if (typeof window === 'undefined') return [createInitialProject()];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [createInitialProject()];
+    const parsed = JSON.parse(raw) as Partial<PlayableProject>[] | Partial<PlayableProject>;
+    const projects = Array.isArray(parsed) ? parsed.map(normalizeProject) : [normalizeProject(parsed)];
+    return projects.length > 0 ? projects : [createInitialProject()];
+  } catch {
+    return [createInitialProject()];
+  }
+};
+
 const selectedObjectLabel = (config: GameConfig, id: string | null) => {
   if (!id) return 'Nothing selected';
   if (id === 'playerSpawn') return 'Player Spawn';
@@ -180,42 +207,8 @@ const selectedObjectLabel = (config: GameConfig, id: string | null) => {
     id;
 };
 
-const generateStandalonePlayable = (project: PlayableProject) => `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>${project.name}</title>
-  <style>html,body,#app{margin:0;width:100%;height:100%;overflow:hidden;background:#c77b00}</style>
-</head>
-<body>
-  <div id="app"></div>
-  <script src="https://pixijs.download/v7.3.2/pixi.min.js"></script>
-  <script>
-    const PLAYABLE_PROJECT = ${JSON.stringify(project, null, 2)};
-    const VIEW_W = 800, VIEW_H = 328, GROUND_Y = 280;
-    const app = new PIXI.Application({ width: VIEW_W, height: VIEW_H, backgroundColor: 0xc77b00, antialias: false });
-    document.getElementById('app').appendChild(app.view);
-    app.view.style.width = '100%';
-    app.view.style.height = '100%';
-    const run = PLAYABLE_PROJECT.runs[0];
-    const g = new PIXI.Graphics();
-    app.stage.addChild(g);
-    g.beginFill(0xe2a33c); g.drawRect(0, 0, VIEW_W, GROUND_Y + 8); g.endFill();
-    g.beginFill(0x231708); g.drawRect(run.config.playerSpawnX - 6, GROUND_Y - 36, 12, 36); g.endFill();
-    run.config.objects.forEach((object) => {
-      if (object.type === 'pit') return;
-      g.beginFill(object.type === 'saw' ? 0x8a1f10 : 0x231708, object.initiallyActive ? 1 : 0.5);
-      g.drawRect(object.x - object.width / 2, object.y - object.height, object.width, object.height);
-      g.endFill();
-    });
-    g.beginFill(0xcfcfcf); g.drawRect(run.config.doorSpawnX - 20, GROUND_Y - 56, 40, 56); g.endFill();
-  </script>
-</body>
-</html>`;
-
 export default function App() {
-  const [projects, setProjects] = useState<PlayableProject[]>([createInitialProject()]);
+  const [projects, setProjects] = useState<PlayableProject[]>(loadSavedProjects);
   const [activeProjectIndex, setActiveProjectIndex] = useState(0);
   const [activeRunIndex, setActiveRunIndex] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>('constructor');
@@ -236,9 +229,29 @@ export default function App() {
     },
   ]);
 
-  const activeProject = projects[activeProjectIndex];
-  const activeRun = activeProject.runs[activeRunIndex];
+  const activeProject = projects[activeProjectIndex] || projects[0];
+  const activeRun = activeProject.runs[activeRunIndex] || activeProject.runs[0];
   const config = activeRun.config;
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+  }, [projects]);
+
+  useEffect(() => {
+    if (activeProjectIndex >= projects.length) {
+      setActiveProjectIndex(Math.max(0, projects.length - 1));
+      setActiveRunIndex(0);
+      setSelectedEntityId(null);
+    }
+  }, [activeProjectIndex, projects.length]);
+
+  useEffect(() => {
+    const runCount = projects[activeProjectIndex]?.runs.length || 0;
+    if (runCount > 0 && activeRunIndex >= runCount) {
+      setActiveRunIndex(runCount - 1);
+      setSelectedEntityId(null);
+    }
+  }, [activeProjectIndex, activeRunIndex, projects]);
 
   useEffect(() => {
     setJsonText(JSON.stringify(activeProject, null, 2));
@@ -271,6 +284,22 @@ export default function App() {
     setActiveProjectIndex(index);
     setActiveRunIndex(0);
     setSelectedEntityId(null);
+  };
+
+  const renameActiveProject = (name: string) => {
+    setProjects((prev) => prev.map((project, projectIndex) =>
+      projectIndex === activeProjectIndex ? { ...project, name } : project,
+    ));
+  };
+
+  const renameActiveRun = (name: string) => {
+    setProjects((prev) => prev.map((project, projectIndex) => {
+      if (projectIndex !== activeProjectIndex) return project;
+      return {
+        ...project,
+        runs: project.runs.map((run, runIndex) => runIndex === activeRunIndex ? { ...run, name } : run),
+      };
+    }));
   };
 
   const addPlayable = () => {
@@ -339,6 +368,45 @@ export default function App() {
     updateActiveConfig(next);
   };
 
+  const duplicateSelected = () => {
+    if (!selectedEntityId || selectedEntityId === 'playerSpawn' || selectedEntityId === 'door') return;
+    const next = cloneConfig(config);
+    const sourceObject = next.objects.find((object) => object.id === selectedEntityId);
+    if (sourceObject) {
+      const copy = {
+        ...sourceObject,
+        id: makeId(sourceObject.type),
+        label: `${sourceObject.label} Copy`,
+        x: Math.min(sourceObject.x + 36, 760),
+      };
+      next.objects.push(copy);
+      updateActiveConfig(next);
+      setSelectedEntityId(copy.id);
+      addLog('OBJECT_COPY', `Copied ${sourceObject.label}`);
+      return;
+    }
+
+    const sourceTrigger = next.triggers.find((trigger) => trigger.id === selectedEntityId);
+    if (sourceTrigger) {
+      const copy = {
+        ...sourceTrigger,
+        id: makeId('trigger'),
+        label: `${sourceTrigger.label} Copy`,
+        x: Math.min(sourceTrigger.x + 36, 720),
+      };
+      next.triggers.push(copy);
+      updateActiveConfig(next);
+      setSelectedEntityId(copy.id);
+      addLog('TRIGGER_COPY', `Copied ${sourceTrigger.label}`);
+    }
+  };
+
+  const updateSpecialSelectionX = (value: number) => {
+    const x = Math.round(value);
+    if (selectedEntityId === 'playerSpawn') updateActiveConfig({ ...config, playerSpawnX: x });
+    if (selectedEntityId === 'door') updateActiveConfig({ ...config, doorSpawnX: x });
+  };
+
   const handleJsonInputChange = (text: string) => {
     setJsonText(text);
     try {
@@ -372,6 +440,34 @@ export default function App() {
   const standalonePlayable = useMemo(() => generateStandalonePlayable(activeProject), [activeProject]);
   const selectedObject = config.objects.find((object) => object.id === selectedEntityId);
   const selectedTrigger = config.triggers.find((trigger) => trigger.id === selectedEntityId);
+  const selectedSpecialX = selectedEntityId === 'playerSpawn'
+    ? config.playerSpawnX
+    : selectedEntityId === 'door'
+      ? config.doorSpawnX
+      : null;
+  const numberClass = 'w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 font-mono';
+
+  const NumberField = ({ label, value, min, max, step = 1, onChange }: {
+    label: string;
+    value: number;
+    min?: number;
+    max?: number;
+    step?: number;
+    onChange: (value: number) => void;
+  }) => (
+    <label className="block">
+      <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">{label}</span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={numberClass}
+      />
+    </label>
+  );
 
   const toolButtons: Array<{ id: EditorTool; label: string }> = [
     { id: 'select', label: 'Select' },
@@ -487,6 +583,11 @@ export default function App() {
               <Layers className="w-3.5 h-3.5" />
               Playables
             </h3>
+            <input
+              value={activeProject.name}
+              onChange={(e) => renameActiveProject(e.target.value)}
+              className="w-full mb-3 bg-black border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-300"
+            />
             <div className="space-y-2">
               {projects.map((project, index) => (
                 <button
@@ -515,6 +616,11 @@ export default function App() {
               <GitBranch className="w-3.5 h-3.5" />
               Runs
             </h3>
+            <input
+              value={activeRun.name}
+              onChange={(e) => renameActiveRun(e.target.value)}
+              className="w-full mb-3 bg-black border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-300"
+            />
             <div className="grid grid-cols-3 gap-2">
               {activeProject.runs.map((run, index) => (
                 <button
@@ -579,19 +685,37 @@ export default function App() {
             {selectedObject && (
               <div className="space-y-3 text-xs">
                 <input value={selectedObject.label} onChange={(e) => updateSelectedObject({ label: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300" />
+                <div className="grid grid-cols-2 gap-2">
+                  <NumberField label="X" value={selectedObject.x} min={0} max={800} onChange={(x) => updateSelectedObject({ x })} />
+                  <NumberField label="Y" value={selectedObject.y} min={0} max={328} onChange={(y) => updateSelectedObject({ y })} />
+                  <NumberField label="Width" value={selectedObject.width} min={8} max={240} onChange={(width) => updateSelectedObject({ width })} />
+                  <NumberField label="Height" value={selectedObject.height} min={8} max={180} onChange={(height) => updateSelectedObject({ height })} />
+                </div>
                 <label className="flex items-center gap-2 text-zinc-400">
                   <input type="checkbox" checked={selectedObject.initiallyActive} onChange={(e) => updateSelectedObject({ initiallyActive: e.target.checked })} />
                   Active on start
                 </label>
-                <button onClick={deleteSelected} className="w-full py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Object
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={duplicateSelected} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy
+                  </button>
+                  <button onClick={deleteSelected} className="py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete
+                  </button>
+                </div>
               </div>
             )}
             {selectedTrigger && (
               <div className="space-y-3 text-xs">
                 <input value={selectedTrigger.label} onChange={(e) => updateSelectedTrigger({ label: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300" />
+                <div className="grid grid-cols-2 gap-2">
+                  <NumberField label="X" value={selectedTrigger.x} min={0} max={800} onChange={(x) => updateSelectedTrigger({ x })} />
+                  <NumberField label="Y" value={selectedTrigger.y} min={0} max={328} onChange={(y) => updateSelectedTrigger({ y })} />
+                  <NumberField label="Width" value={selectedTrigger.width} min={10} max={260} onChange={(width) => updateSelectedTrigger({ width })} />
+                  <NumberField label="Height" value={selectedTrigger.height} min={10} max={260} onChange={(height) => updateSelectedTrigger({ height })} />
+                </div>
                 <select value={selectedTrigger.action} onChange={(e) => updateSelectedTrigger({ action: e.target.value as TriggerZone['action'] })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300">
                   <option value="activate">Activate object</option>
                   <option value="openPit">Open pit</option>
@@ -601,10 +725,22 @@ export default function App() {
                   <option value="door">Door</option>
                   {config.objects.map((object) => <option key={object.id} value={object.id}>{object.label}</option>)}
                 </select>
-                <button onClick={deleteSelected} className="w-full py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Trigger
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={duplicateSelected} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy
+                  </button>
+                  <button onClick={deleteSelected} className="py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )}
+            {selectedSpecialX !== null && (
+              <div className="space-y-3 text-xs">
+                <NumberField label="X position" value={selectedSpecialX} min={20} max={780} onChange={updateSpecialSelectionX} />
+                <p className="text-[10px] text-zinc-500">Drag it on the level or set the exact X position here.</p>
               </div>
             )}
             {!selectedObject && !selectedTrigger && selectedEntityId !== 'playerSpawn' && selectedEntityId !== 'door' && (

@@ -376,7 +376,7 @@ export default function LevelDevilGame({
       );
       activePits.forEach((pit) => {
         floorGraphics.beginFill(COL_BG);
-        floorGraphics.drawRect(pit.x, GROUND_Y - 2, pit.width, VIEW_H - GROUND_Y + 16);
+        floorGraphics.drawRect(pit.x - pit.width / 2, GROUND_Y - 2, pit.width, VIEW_H - GROUND_Y + 16);
         floorGraphics.endFill();
       });
 
@@ -784,8 +784,8 @@ export default function LevelDevilGame({
         (object) =>
           object.type === 'pit' &&
           s.activeObjectIds.has(object.id) &&
-          player.x > object.x &&
-          player.x < object.x + object.width &&
+          player.x > object.x - object.width / 2 &&
+          player.x < object.x + object.width / 2 &&
           player.y >= GROUND_Y - 4,
       );
 
