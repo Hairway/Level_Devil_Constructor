@@ -211,6 +211,7 @@ export default function App() {
   const [projects, setProjects] = useState<PlayableProject[]>(loadSavedProjects);
   const [activeProjectIndex, setActiveProjectIndex] = useState(0);
   const [activeRunIndex, setActiveRunIndex] = useState(0);
+  const [copySourceRunIndex, setCopySourceRunIndex] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>('constructor');
   const [currentTool, setCurrentTool] = useState<EditorTool>('select');
   const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
@@ -251,7 +252,10 @@ export default function App() {
       setActiveRunIndex(runCount - 1);
       setSelectedEntityId(null);
     }
-  }, [activeProjectIndex, activeRunIndex, projects]);
+    if (runCount > 0 && copySourceRunIndex >= runCount) {
+      setCopySourceRunIndex(runCount - 1);
+    }
+  }, [activeProjectIndex, activeRunIndex, copySourceRunIndex, projects]);
 
   useEffect(() => {
     setJsonText(JSON.stringify(activeProject, null, 2));
@@ -283,6 +287,7 @@ export default function App() {
   const setActiveProjectSafe = (index: number) => {
     setActiveProjectIndex(index);
     setActiveRunIndex(0);
+    setCopySourceRunIndex(0);
     setSelectedEntityId(null);
   };
 
@@ -313,6 +318,7 @@ export default function App() {
     ]);
     setActiveProjectIndex(projects.length);
     setActiveRunIndex(0);
+    setCopySourceRunIndex(0);
     addLog('PROJECT', 'Created new playable iteration');
   };
 
@@ -330,19 +336,22 @@ export default function App() {
     setProjects((prev) => [...prev, copy]);
     setActiveProjectIndex(projects.length);
     setActiveRunIndex(0);
+    setCopySourceRunIndex(0);
     addLog('PROJECT', `Duplicated playable ${source.name}`);
   };
 
-  const addRun = (copyCurrent = false) => {
-    const sourceConfig = copyCurrent ? config : createDefaultConfig();
+  const addRun = (copyCurrent = false, sourceRunIndex = activeRunIndex) => {
+    const sourceRun = activeProject.runs[sourceRunIndex] || activeRun;
+    const sourceConfig = copyCurrent ? sourceRun.config : createDefaultConfig();
     const nextRun = createRun(`Run ${activeProject.runs.length + 1}`, sourceConfig);
     setProjects((prev) => prev.map((project, projectIndex) => {
       if (projectIndex !== activeProjectIndex) return project;
       return { ...project, runs: [...project.runs, nextRun] };
     }));
     setActiveRunIndex(activeProject.runs.length);
+    setCopySourceRunIndex(activeProject.runs.length);
     setSelectedEntityId(null);
-    addLog('RUN', copyCurrent ? 'Copied current run' : 'Created empty run');
+    addLog('RUN', copyCurrent ? `Copied ${sourceRun.name}` : 'Created empty run');
   };
 
   const deleteSelected = () => {
@@ -488,6 +497,7 @@ export default function App() {
                 Playable Constructor
               </span>
               <span className="text-zinc-500 text-xs font-mono">v2.0</span>
+              <span className="text-emerald-400 text-[10px] font-mono uppercase">Autosaved</span>
             </div>
             <h1 className="text-2xl font-bold font-display tracking-tight text-zinc-100 mt-1">
               {activeProject.name}
@@ -635,12 +645,24 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <label className="block mt-3">
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Copy source</span>
+              <select
+                value={copySourceRunIndex}
+                onChange={(e) => setCopySourceRunIndex(Number(e.target.value))}
+                className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-300"
+              >
+                {activeProject.runs.map((run, index) => (
+                  <option key={run.id} value={index}>{`Run ${index + 1} - ${run.name}`}</option>
+                ))}
+              </select>
+            </label>
             <div className="grid grid-cols-2 gap-2 mt-3">
               <button onClick={() => addRun(false)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                 <Plus className="w-3.5 h-3.5" />
                 Empty Run
               </button>
-              <button onClick={() => addRun(true)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+              <button onClick={() => addRun(true, copySourceRunIndex)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                 <Copy className="w-3.5 h-3.5" />
                 Copy Run
               </button>
