@@ -4,6 +4,7 @@ export interface GameConfig {
   gravity: number;
   doorBaseSpeed: number;
   doorAccelSpeed: number;
+  doorHoming: number;
   triggerDistance: number;
   skipButtonDelay: number;
   spikes: number[];
