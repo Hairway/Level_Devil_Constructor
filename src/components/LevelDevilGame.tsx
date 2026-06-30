@@ -490,8 +490,12 @@ export default function LevelDevilGame({
 
       setTimeout(() => {
         s.isDyingAnim = false;
-        if (s.activeRun === 1) onRunComplete(2);
-        else if (s.activeRun === 2) onRunComplete(3);
+        const sawDoorInRun1 = s.activeRun === 1 && s.doorTriggered;
+        const resolvedSkipTrap = s.activeRun === 2 && s.skipClicked && cause === 'PIT';
+        const resolvedDoorTrap = (s.activeRun === 1 || s.activeRun === 2) && cause === 'SAW';
+
+        if (s.activeRun === 1 && (sawDoorInRun1 || resolvedDoorTrap)) onRunComplete(2);
+        else if (s.activeRun === 2 && (resolvedSkipTrap || resolvedDoorTrap)) onRunComplete(3);
         else doReset();
       }, 1100);
     };
@@ -724,9 +728,6 @@ export default function LevelDevilGame({
   };
   const pix: CSSProperties = { imageRendering: 'pixelated' };
   const isPortrait = orientation === 'vertical';
-  const activeFrameStyle: CSSProperties = isPortrait
-    ? { left: '21.875%', top: 0, width: '56.25%', height: '100%' }
-    : { left: 0, top: '21.875%', width: '100%', height: '56.25%' };
   const stageButtonBase: CSSProperties = {
     position: 'absolute',
     zIndex: 20,
@@ -756,18 +757,9 @@ export default function LevelDevilGame({
           maxWidth: '100%',
           aspectRatio: '1 / 1',
           overflow: 'hidden',
-          backgroundColor: '#000',
+          backgroundColor: '#c77b00',
         }}
       >
-        <div
-          style={{
-            position: 'absolute',
-            backgroundColor: '#c77b00',
-            overflow: 'hidden',
-            ...activeFrameStyle,
-          }}
-        />
-
         <div
           style={{
             ...stageButtonBase,
