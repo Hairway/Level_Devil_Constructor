@@ -341,6 +341,7 @@ const MOTION_MODES: Array<{ value: MotionMode; label: string }> = [
 const ROLE_OPTIONS: Array<{ value: CollisionRole; label: string }> = [
   { value: 'hazard', label: 'Hazard (kills)' },
   { value: 'solid', label: 'Solid (platform)' },
+  { value: 'spring', label: 'Spring (bounces up)' },
   { value: 'pit', label: 'Pit (hole)' },
   { value: 'decor', label: 'Decor (no collision)' },
 ];
@@ -353,6 +354,7 @@ const ACTION_OPTIONS: Array<{ value: ObjectActionKind; label: string }> = [
   { value: 'startDoorChase', label: 'Start door chase' },
   { value: 'nextRun', label: 'Skip to next run' },
   { value: 'redirectCTA', label: 'Redirect to CTA' },
+  { value: 'chain', label: 'Fire another trigger (chain)' },
 ];
 
 export default function App() {
@@ -1097,6 +1099,9 @@ export default function App() {
                     options={ROLE_OPTIONS}
                     onChange={(role) => updateSelectedObject({ role: role as CollisionRole })}
                   />
+                  {(selectedObject.role || objectPreset(selectedObject.type).role) === 'spring' && (
+                    <NumberField label="Bounce force" value={selectedObject.bounce ?? 18} min={6} max={30} step={1} onChange={(bounce) => updateSelectedObject({ bounce })} />
+                  )}
                   <NumberField label="Appear delay (s)" value={selectedObject.appearDelay || 0} min={0} max={10} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
                   <SelectField
                     label="Attach to (moves with)"
@@ -1274,7 +1279,14 @@ export default function App() {
                   options={ACTION_OPTIONS.filter((option) => option.value !== 'none') as Array<{ value: TriggerZone['action']; label: string }>}
                   onChange={(action) => updateSelectedTrigger({ action })}
                 />
-                {!['collapseFloor', 'nextRun', 'redirectCTA'].includes(selectedTrigger.action) && (
+                {selectedTrigger.action === 'chain' ? (
+                  <SelectField
+                    label="Chain to trigger"
+                    value={selectedTrigger.targetId}
+                    options={config.triggers.filter((t) => t.id !== selectedEntityId).map((t) => ({ value: t.id, label: t.label }))}
+                    onChange={(targetId) => updateSelectedTrigger({ targetId })}
+                  />
+                ) : !['collapseFloor', 'nextRun', 'redirectCTA'].includes(selectedTrigger.action) && (
                   <SelectField
                     label="Target"
                     value={selectedTrigger.targetId}
@@ -1336,12 +1348,16 @@ export default function App() {
                   );
                 })()}
                 <div className="grid grid-cols-2 gap-2 items-end">
-                  <NumberField label="Fire delay (s)" value={selectedTrigger.delay || 0} min={0} max={10} step={0.1} onChange={(delay) => updateSelectedTrigger({ delay })} />
+                  <NumberField label={selectedTrigger.auto ? 'Timer (s from start)' : 'Fire delay (s)'} value={selectedTrigger.delay || 0} min={0} max={20} step={0.1} onChange={(delay) => updateSelectedTrigger({ delay })} />
                   <label className="flex items-center gap-2 text-zinc-400 pb-2">
                     <input type="checkbox" checked={!!selectedTrigger.repeat} onChange={(e) => updateSelectedTrigger({ repeat: e.target.checked })} />
                     Repeat
                   </label>
                 </div>
+                <label className="flex items-center gap-2 text-zinc-400 text-xs">
+                  <input type="checkbox" checked={!!selectedTrigger.auto} onChange={(e) => updateSelectedTrigger({ auto: e.target.checked })} />
+                  Auto-fire on timer (no touch needed)
+                </label>
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Linked target</div>
                   <button

@@ -965,6 +965,15 @@ export default function LevelDevilGame({
         case 'redirectCTA':
           triggerDeath('REDIRECT');
           return;
+        case 'chain': {
+          // fire another trigger's action (guarded by firedTriggerIds against loops)
+          const chained = s.config.triggers.find((t) => t.id === targetId);
+          if (chained && !s.firedTriggerIds.has(chained.id)) {
+            s.firedTriggerIds.add(chained.id);
+            runAction(chained.action as ObjectActionKind, chained.targetId, chained.label);
+          }
+          return;
+        }
         case 'splitFloor':
           s.activeObjectIds.add(targetId);
           s.splitPitIds.add(targetId);
@@ -1210,18 +1219,24 @@ export default function LevelDevilGame({
         return player.x > object.x - halfW && player.x < object.x + halfW && player.y >= GROUND_Y - 4;
       });
 
-      // Land on solid platforms (one-way: only when dropping onto the top edge).
+      // Land on solid platforms / bounce off springs (one-way: only when dropping onto the top).
       let landedOnSolid = false;
       for (const object of s.config.objects) {
-        if (effectiveRole(object) !== 'solid') continue;
+        const role = effectiveRole(object);
+        if (role !== 'solid' && role !== 'spring') continue;
         if (!(s.activeObjectIds.has(object.id) || object.initiallyActive)) continue;
         const r = objectWorldRect(object);
         const prevFoot = player.y - s.playerVelY * delta;
         if (s.playerVelY >= 0 && player.x > r.x && player.x < r.x + r.w && prevFoot <= r.y + 2 && player.y >= r.y) {
           player.y = r.y;
-          s.playerVelY = 0;
-          s.isGrounded = true;
-          landedOnSolid = true;
+          if (role === 'spring') {
+            s.playerVelY = -(object.bounce || 18); // launch the player upward
+            s.isGrounded = false;
+          } else {
+            s.playerVelY = 0;
+            s.isGrounded = true;
+            landedOnSolid = true;
+          }
         }
       }
 
@@ -1252,8 +1267,15 @@ export default function LevelDevilGame({
       const playerRect = { x: player.x - 10, y: player.y - PLAYER_H, w: 20, h: PLAYER_H };
 
       s.config.triggers.forEach((trigger) => {
-        const over = rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, trigger.x, trigger.y, trigger.width, trigger.height);
         const delay = trigger.delay || 0;
+        if (trigger.auto) {
+          // fires on a timer from run start, no touch needed
+          const t = (s.triggerTimers.get(trigger.id) || 0) + (1 / 60) * delta;
+          s.triggerTimers.set(trigger.id, t);
+          if (t >= delay) activateTrigger(trigger);
+          return;
+        }
+        const over = rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, trigger.x, trigger.y, trigger.width, trigger.height);
         if (over) {
           const t = (s.triggerTimers.get(trigger.id) || 0) + (1 / 60) * delta;
           s.triggerTimers.set(trigger.id, t);

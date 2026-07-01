@@ -388,6 +388,14 @@ export default class Game extends IMPION.ComponentEmpty {
 		if (kind === "redirectCTA") { this.#redirectCTA(); return; }
 		if (kind === "splitFloor") { this.#activeIds.add(targetId); this.#splitIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId); this.#drawFloor(); return; }
 		if (kind === "openPit") { this.#activeIds.add(targetId); this.#ensureRuntime(targetId); this.#drawFloor(); return; }
+		if (kind === "chain") {
+			const chained = (this.#config.triggers || []).find((t) => t.id === targetId);
+			if (chained && !this.#firedIds.has(chained.id)) {
+				this.#firedIds.add(chained.id);
+				this.#runAction(chained.action, chained.targetId);
+			}
+			return;
+		}
 		// activate
 		this.#activeIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId);
 		this.#buildObjectSprites();
@@ -490,11 +498,13 @@ export default class Game extends IMPION.ComponentEmpty {
 
 		let landed = false;
 		for (const o of s.objects) {
-			if (roleOf(o) !== "solid" || !(this.#activeIds.has(o.id) || o.initiallyActive)) continue;
+			const role = roleOf(o);
+			if ((role !== "solid" && role !== "spring") || !(this.#activeIds.has(o.id) || o.initiallyActive)) continue;
 			const r = this.#objectWorldRect(o);
 			const prevFoot = py - this.#vy * dt;
 			if (this.#vy >= 0 && px > r.x && px < r.x + r.w && prevFoot <= r.y + 2 && py >= r.y) {
-				py = r.y; this.#vy = 0; this.#grounded = true; landed = true;
+				if (role === "spring") { py = r.y; this.#vy = -(o.bounce || 18); this.#grounded = false; }
+				else { py = r.y; this.#vy = 0; this.#grounded = true; landed = true; }
 			}
 		}
 		if (!landed && py >= GROUND_Y) {
@@ -560,8 +570,19 @@ export default class Game extends IMPION.ComponentEmpty {
 
 		const pRect = { x: px - PLAYER_W / 2, y: py - PLAYER_H, w: PLAYER_W, h: PLAYER_H };
 		for (const t of s.triggers) {
-			const over = rectsOverlap(pRect.x, pRect.y, pRect.w, pRect.h, t.x, t.y, t.width, t.height);
 			const delay = t.delay || 0;
+			if (t.auto) {
+				// fire automatically on a timer counted from run start (no touch needed)
+				const tt = (this.#trigTimers.get(t.id) || 0) + (1 / 60) * dt;
+				this.#trigTimers.set(t.id, tt);
+				if (!this.#firedIds.has(t.id) && tt >= delay) {
+					this.#firedIds.add(t.id);
+					this.#runAction(t.action, t.targetId);
+					if (t.repeat) { this.#firedIds.delete(t.id); this.#trigTimers.set(t.id, 0); }
+				}
+				continue;
+			}
+			const over = rectsOverlap(pRect.x, pRect.y, pRect.w, pRect.h, t.x, t.y, t.width, t.height);
 			if (over) {
 				const tt = (this.#trigTimers.get(t.id) || 0) + (1 / 60) * dt;
 				this.#trigTimers.set(t.id, tt);

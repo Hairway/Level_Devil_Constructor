@@ -7,12 +7,12 @@ export type TrapObjectType =
   | 'laser'
   | 'platform'
   | 'button';
-export type TriggerAction = 'activate' | 'openPit' | 'startDoorChase' | 'splitFloor' | 'collapseFloor' | 'nextRun' | 'redirectCTA';
+export type TriggerAction = 'activate' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
 
 // How an object behaves over time once it is active.
 export type MotionMode = 'static' | 'linear' | 'chase' | 'fall';
 // How an object collides with the player.
-export type CollisionRole = 'hazard' | 'solid' | 'pit' | 'decor';
+export type CollisionRole = 'hazard' | 'solid' | 'pit' | 'decor' | 'spring';
 // What an object/trigger does when fired (touch by player, or tap when clickable).
 export type ObjectActionKind =
   | 'none'
@@ -22,7 +22,8 @@ export type ObjectActionKind =
   | 'startDoorChase'
   | 'collapseFloor'
   | 'nextRun'
-  | 'redirectCTA';
+  | 'redirectCTA'
+  | 'chain';
 
 export interface ObjectMotion {
   mode: MotionMode;
@@ -61,6 +62,7 @@ export interface LevelObject {
   attachTo?: string; // follow another entity: '' | 'door' | 'player' | objectId (moves with it)
   text?: string; // text drawn on the object (buttons); falls back to label
   textColor?: string; // hex color for the on-object text
+  bounce?: number; // launch impulse when role is 'spring' (px/frame; default 18)
 }
 
 export interface TriggerZone {
@@ -72,8 +74,9 @@ export interface TriggerZone {
   targetId: string;
   action: TriggerAction;
   label: string;
-  delay?: number; // seconds after the player enters before the action fires
+  delay?: number; // seconds after the player enters (or run start, if auto) before firing
   repeat?: boolean; // re-fire every time the player enters (default: fire once)
+  auto?: boolean; // fire automatically on a timer (delay from run start), no touch needed
 }
 
 export interface GameConfig {
