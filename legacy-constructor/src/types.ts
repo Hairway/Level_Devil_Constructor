@@ -60,8 +60,12 @@ export interface LevelObject {
   motion?: ObjectMotion;
   clickable?: boolean; // behaves like a button: tap fires `action`
   action?: ObjectAction; // fired on tap (clickable) or on player touch
+  links?: Array<{ targetId: string; action: ObjectActionKind }>; // extra actions fired alongside `action`
   appearDelay?: number; // seconds before the object becomes visible/active in play
+  vanishAfter?: number; // seconds after appearing before it auto-disappears (0 = never)
+  opacity?: number; // 0..1 transparency (undefined = fully opaque)
   spriteUrl?: string; // custom image for loaded/imported objects
+  fontUrl?: string; // uploaded custom font (data URL); pairs with fontFamily as its name
   attachTo?: string; // follow another entity: '' | 'door' | 'player' | objectId (moves with it)
   text?: string; // text drawn on the object (buttons/text); falls back to label
   textColor?: string; // hex color for the on-object text

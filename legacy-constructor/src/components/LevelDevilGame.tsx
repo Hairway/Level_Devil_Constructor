@@ -84,6 +84,7 @@ export default function LevelDevilGame({
   const triggerDeathRef = useRef<((cause: DeathCause) => void) | null>(null);
   const drawFloorRef = useRef<(collapsed: boolean) => void>(() => {});
   const runActionRef = useRef<(kind: ObjectActionKind, targetId: string, label: string) => void>(() => {});
+  const loadedFontsRef = useRef<Set<string>>(new Set());
 
   // The PIXI setup effect runs once (deps [orientation]) and closes over these callbacks, so keep
   // the latest versions in a ref — otherwise edits always target the run active at mount (run 1).
@@ -140,6 +141,22 @@ export default function LevelDevilGame({
     // state (motion, timers, active set) is rebuilt; in the editor we just redraw.
     if (stateRef.current.editorMode === 'play') resetRef.current();
     else redrawRef.current();
+  }, [config]);
+
+  // Register any uploaded custom fonts (data URLs) and redraw once they load.
+  useEffect(() => {
+    const jobs: Promise<unknown>[] = [];
+    for (const o of config.objects) {
+      if (o.fontUrl && o.fontFamily && !loadedFontsRef.current.has(o.fontFamily)) {
+        loadedFontsRef.current.add(o.fontFamily);
+        try {
+          const ff = new FontFace(o.fontFamily, `url(${o.fontUrl})`);
+          (document as unknown as { fonts: FontFaceSet }).fonts.add(ff);
+          jobs.push(ff.load().catch(() => {}));
+        } catch { /* ignore bad font */ }
+      }
+    }
+    if (jobs.length) Promise.all(jobs).then(() => redrawRef.current && redrawRef.current());
   }, [config]);
 
   useEffect(() => {
@@ -732,6 +749,20 @@ export default function LevelDevilGame({
     // Cache of live display objects by id, reused across frames instead of rebuilt every tick.
     const objectSprites = new Map<string, PIXI.DisplayObject>();
 
+    // present = inside the object's [appearDelay, appearDelay+vanishAfter] visible window
+    const presentNow = (object: LevelObject, rt?: ObjectRuntime) => {
+      const since = rt ? rt.since : 0;
+      if (since < (object.appearDelay || 0)) return false;
+      if (object.vanishAfter && since >= (object.appearDelay || 0) + object.vanishAfter) return false;
+      return true;
+    };
+
+    // fire an object's own action plus any extra links (touch or tap)
+    const fireObjectAction = (object: LevelObject) => {
+      if (object.action && object.action.kind !== 'none') runActionRef.current(object.action.kind, object.action.targetId, object.label);
+      for (const l of (object.links || [])) runActionRef.current(l.action, l.targetId, object.label);
+    };
+
     // Full (re)build of object sprites. Called on structural changes (reset, edits, activation),
     // not every frame — per-frame motion uses syncObjectTransforms() which only moves/hides them.
     const drawObjects = () => {
@@ -744,7 +775,7 @@ export default function LevelDevilGame({
       s.config.objects.forEach((object) => {
         const runtime = s.objectRuntime.get(object.id);
         const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
-        const appeared = !play || (runtime ? runtime.since >= (object.appearDelay || 0) : true);
+        const appeared = !play || presentNow(object, runtime);
 
         if (play) {
           // pits are rendered by the floor; never draw a separate pit sprite in play
@@ -755,17 +786,21 @@ export default function LevelDevilGame({
 
         const display = makeObjectSprite(object);
         const selected = s.selectedEntityId === object.id;
+        const opacity = object.opacity ?? 1;
         if (!play && 'alpha' in display) {
-          display.alpha = active || object.type === 'spike' ? 1 : 0.55;
+          display.alpha = (active || object.type === 'spike' ? 1 : 0.55) * opacity;
+        } else if (play && 'alpha' in display) {
+          display.alpha = opacity;
         }
         if (play) {
           display.visible = appeared; // appear-delay objects start hidden, revealed by sync
         }
 
-        if (play && object.clickable && (object.action?.kind || 'none') !== 'none') {
+        const hasAction = (object.action?.kind || 'none') !== 'none' || !!(object.links && object.links.length);
+        if (play && object.clickable && hasAction) {
           display.eventMode = 'static';
           (display as any).cursor = 'pointer';
-          display.on('pointertap', () => runActionRef.current(object.action!.kind, object.action!.targetId, object.label));
+          display.on('pointertap', () => fireObjectAction(object));
         }
 
         if (s.editorMode === 'constructor') {
@@ -807,8 +842,7 @@ export default function LevelDevilGame({
           if (object.spin) display.rotation = ((object.rotation || 0) * Math.PI) / 180 + (rt.spinAngle || 0);
         }
         const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
-        const appeared = rt ? rt.since >= (object.appearDelay || 0) : true;
-        display.visible = active && appeared;
+        display.visible = active && presentNow(object, rt);
       });
     };
 
@@ -1271,6 +1305,7 @@ export default function LevelDevilGame({
         const role = effectiveRole(object);
         if (role !== 'solid' && role !== 'spring') continue;
         if (!((s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id))) continue;
+        if (!presentNow(object, s.objectRuntime.get(object.id))) continue; // vanished platforms stop colliding
         const r = objectWorldRect(object);
         const prevFoot = player.y - s.playerVelY * delta;
         if (s.playerVelY >= 0 && player.x > r.x && player.x < r.x + r.w && prevFoot <= r.y + 2 && player.y >= r.y) {
@@ -1425,16 +1460,17 @@ export default function LevelDevilGame({
         const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
         if (!active) continue;
         const rt = s.objectRuntime.get(object.id);
-        if ((object.appearDelay || 0) > 0 && rt && rt.since < object.appearDelay!) continue; // not appeared yet
+        if (!presentNow(object, rt)) continue; // not appeared yet, or already vanished
         const wr = objectWorldRect(object);
         const touching = rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, wr.x, wr.y, wr.w, wr.h);
 
         // any active object can carry a touch action (acts as a trigger), fired once
-        if (touching && object.action && object.action.kind !== 'none' && !object.clickable) {
+        const hasTouchAction = (object.action && object.action.kind !== 'none') || !!(object.links && object.links.length);
+        if (touching && hasTouchAction && !object.clickable) {
           const key = `obj:${object.id}`;
           if (!s.firedTriggerIds.has(key)) {
             s.firedTriggerIds.add(key);
-            runAction(object.action.kind, object.action.targetId, object.label);
+            fireObjectAction(object);
           }
         }
 
