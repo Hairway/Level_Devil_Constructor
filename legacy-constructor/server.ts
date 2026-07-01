@@ -9,6 +9,28 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
+  // Export the current level straight into the IMPION template at ../src/level.json
+  // (fixed target — no user-controlled path). Run the constructor from legacy-constructor/.
+  app.post("/api/export-level", (req, res) => {
+    try {
+      const project = req.body;
+      if (!project || !Array.isArray(project.runs)) {
+        return res.status(400).json({ error: "Expected a project with a runs array" });
+      }
+      const target = path.resolve(process.cwd(), "..", "src", "level.json");
+      const repoSrc = path.resolve(process.cwd(), "..", "src");
+      if (!fs.existsSync(repoSrc)) {
+        return res.status(404).json({ error: "Template src/ not found (run from legacy-constructor/ inside the repo)" });
+      }
+      fs.writeFileSync(target, JSON.stringify(project, null, 2), "utf8");
+      console.log("Exported level to", target);
+      res.json({ success: true, path: target });
+    } catch (err: any) {
+      console.error("Export level error:", err);
+      res.status(500).json({ error: err.message || "Failed to export level" });
+    }
+  });
+
   // API to save files fetched from Google Drive in the user's browser
   app.post("/api/save-file", (req, res) => {
     try {

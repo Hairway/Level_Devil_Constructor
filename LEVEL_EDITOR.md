@@ -20,16 +20,19 @@ separately:
     npm install
     npm run dev            # http://localhost:3000
 
-Design your runs/objects/triggers there, then use **Copy Project JSON** (or the
-JSON File download) in the Import/Export panel. The exported project uses the
-exact same shape and the **same 800×328 coordinate space** as the template, so
-it drops in unchanged.
+Design your runs/objects/triggers there. The project uses the exact same shape
+and the **same 800×328 coordinate space** as the template, so it drops in
+unchanged.
 
 ## Applying a level
 
-1. Copy the constructor's project JSON.
-2. Paste it into `src/level.json` (replace the contents).
-3. Rebuild / re-run the template:
+**One click (dev server running):** press **Export to IMPION template** in the
+Import/Export panel. It writes the active project straight to `../src/level.json`
+via the constructor's `/api/export-level` endpoint. Then rebuild the template.
+
+**Manual:** use **Copy Project JSON** (or JSON File), paste into `src/level.json`.
+
+Then rebuild / re-run the template from the repo root:
 
        npm run build        # single inlined build/index.html (+ zip)
        # or: npm run dev    # live dev server on http://localhost:8080
