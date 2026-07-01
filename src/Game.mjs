@@ -480,10 +480,30 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#w = width; this.#h = height;
 		const root = this.components["LevelRoot"];
 		if (!root) return;
-		const designW = width < height ? 720 : 1280;
-		const designH = width < height ? 1280 : 720;
-		const scale = Math.min((designW * 0.96) / VIEW_W, (designH * 0.6) / VIEW_H);
+		const portrait = width < height;
+		const designW = portrait ? 720 : 1280;
+		const designH = portrait ? 1280 : 720;
+		const halfW = designW / 2;
+		const halfH = designH / 2;
+
+		// fit the 800x328 corridor; sit it a bit above center so controls have room below
+		const scale = Math.min((designW * 0.96) / VIEW_W, (designH * 0.5) / VIEW_H);
 		root.scale.set(scale);
-		root.position.set(-VIEW_W / 2 * scale, -VIEW_H / 2 * scale);
+		root.position.set(-VIEW_W / 2 * scale, -VIEW_H / 2 * scale - (portrait ? 120 : 40));
+
+		// on-screen controls pinned to the bottom, inside the visible design area
+		const left = this.components["CtrlLeft"];
+		const right = this.components["CtrlRight"];
+		const jump = this.components["CtrlJump"];
+		if (left && right && jump) {
+			const y = halfH - 90;
+			left.position.set(-halfW + 90, y);
+			right.position.set(-halfW + 220, y);
+			jump.position.set(halfW - 90, y);
+		}
+
+		// keep the title just above the corridor
+		const title = this.components["Task"];
+		if (title) title.position.set(0, root.position.y - 34);
 	};
 }
