@@ -333,6 +333,7 @@ export default function LevelDevilGame({
       | { kind: 'player'; dx: number; display: PIXI.DisplayObject }
       | { kind: 'door'; dx: number; display: PIXI.DisplayObject }
       | { kind: 'link'; sourceKind: 'trigger' | 'object'; id: string; x: number; y: number }
+      | { kind: 'waypoint'; objId: string; index: number; x: number; y: number }
       | null = null;
 
     // Snap a coordinate to the editor grid (falls back to whole pixels when snapping is off).
@@ -705,8 +706,14 @@ export default function LevelDevilGame({
       s.config.objects.forEach((object) => {
         const m = objectMotion(object);
         if (m.mode !== 'path' || !m.waypoints || m.waypoints.length === 0) return;
-        const pts = [{ x: object.x, y: object.y }, ...m.waypoints];
-        connectorsLayer.lineStyle(2, 0x22d3ee, 0.8);
+        const selected = s.selectedEntityId === object.id;
+        // live positions: the waypoint being dragged follows the cursor
+        const wpsLive = m.waypoints.map((wp, i) =>
+          (dragging && dragging.kind === 'waypoint' && dragging.objId === object.id && dragging.index === i)
+            ? { x: dragging.x, y: dragging.y } : wp,
+        );
+        const pts = [{ x: object.x, y: object.y }, ...wpsLive];
+        connectorsLayer.lineStyle(2, 0x22d3ee, selected ? 0.95 : 0.7);
         connectorsLayer.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i++) connectorsLayer.lineTo(pts[i].x, pts[i].y);
         pts.forEach((p, i) => {
@@ -715,6 +722,26 @@ export default function LevelDevilGame({
           connectorsLayer.drawCircle(p.x, p.y, i === 0 ? 3 : 4);
           connectorsLayer.endFill();
         });
+        // draggable handles for each waypoint (only for the selected object)
+        if (selected && s.editorMode === 'constructor') {
+          wpsLive.forEach((p, i) => {
+            const handle = new PIXI.Graphics();
+            handle.lineStyle(2, 0xffffff, 0.95);
+            handle.beginFill(0x22d3ee, 0.9);
+            handle.drawCircle(0, 0, 7);
+            handle.endFill();
+            handle.x = p.x;
+            handle.y = p.y;
+            handle.eventMode = 'static';
+            handle.cursor = 'grab';
+            handle.on('pointerdown', (e: any) => {
+              e.stopPropagation?.();
+              const lp = e.data.getLocalPosition(world);
+              dragging = { kind: 'waypoint', objId: object.id, index: i, x: lp.x, y: lp.y };
+            });
+            connectorHandles.addChild(handle);
+          });
+        }
       });
     };
 
@@ -1216,6 +1243,10 @@ export default function LevelDevilGame({
         dragging.x = p.x;
         dragging.y = p.y;
         drawConnectors();
+      } else if (dragging.kind === 'waypoint') {
+        dragging.x = clamp(snapVal(p.x), 0, VIEW_W);
+        dragging.y = clamp(snapVal(p.y), BAND_TOP, GROUND_Y + 40);
+        drawConnectors();
       }
     });
 
@@ -1236,6 +1267,17 @@ export default function LevelDevilGame({
         next.playerSpawnX = Math.round(dragging.display.x);
       } else if (dragging.kind === 'door') {
         next.doorSpawnX = Math.round(dragging.display.x);
+      } else if (dragging.kind === 'waypoint') {
+        const drag = dragging;
+        next.objects = next.objects.map((object) => {
+          if (object.id !== drag.objId) return object;
+          const m = objectMotion(object);
+          const waypoints = (m.waypoints || []).map((wp, i) => i === drag.index ? { x: Math.round(drag.x), y: Math.round(drag.y) } : wp);
+          return { ...object, motion: { ...m, waypoints } };
+        });
+        dragging = null;
+        onConfigChange(next);
+        return;
       } else if (dragging.kind === 'link') {
         // Re-target the link: drop the handle onto an object, or near the door.
         const drag = dragging;
