@@ -465,6 +465,16 @@ export default class Game extends IMPION.ComponentEmpty {
 			}
 			return;
 		}
+		if (kind === "teleport") {
+			// move the player to the target object's position (a teleport pad), or the door
+			const to = this.#config.objects.find((o) => o.id === targetId);
+			const rt = to ? this.#runtime.get(targetId) : null;
+			const tx = to ? (rt ? rt.x : to.x) : this.#door.x;
+			const ty = to ? (rt ? rt.y : to.y) : GROUND_Y;
+			this.#hero.position.set(tx, ty);
+			this.#vy = 0;
+			return;
+		}
 		if (kind === "deactivate") {
 			this.#hiddenIds.add(targetId); this.#activeIds.delete(targetId); this.#motionRunIds.delete(targetId);
 			this.#buildObjectSprites(); this.#drawFloor(); return;

@@ -368,6 +368,7 @@ const ACTION_OPTIONS: Array<{ value: ObjectActionKind; label: string }> = [
   { value: 'activate', label: 'Activate target (show)' },
   { value: 'deactivate', label: 'Deactivate target (hide/vanish)' },
   { value: 'toggle', label: 'Toggle target (show/hide)' },
+  { value: 'teleport', label: 'Teleport player to target' },
   { value: 'openPit', label: 'Open pit' },
   { value: 'splitFloor', label: 'Split floor open' },
   { value: 'collapseFloor', label: 'Collapse whole floor' },
