@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import * as PIXI from 'pixi.js';
 import { ActiveRun, EditorMode, EditorTool, GameConfig, LevelObject, ObjectActionKind, TrapObjectType, TriggerZone } from '../types';
-import { effectiveRole, objectCatalog, objectMotion, objectPreset } from '../objectModel';
+import { DEFAULT_BG, DEFAULT_GROUND, effectiveRole, hexToNum, lightenNum, objectCatalog, objectMotion, objectPreset } from '../objectModel';
 import * as A from '../assets';
 
 const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
@@ -401,18 +401,22 @@ export default function LevelDevilGame({
     };
 
     const drawFloor = (collapsed: boolean) => {
+      const s = stateRef.current;
+      const bg = hexToNum(s.config.bgColor, hexToNum(DEFAULT_BG));
+      const band = hexToNum(s.config.groundColor, hexToNum(DEFAULT_GROUND));
+      const bandHi = lightenNum(band, 0.12);
+
       floorGraphics.clear();
-      floorGraphics.beginFill(COL_BAND);
+      floorGraphics.beginFill(band);
       floorGraphics.drawRect(0, BAND_TOP, VIEW_W, GROUND_Y - BAND_TOP + 8);
       floorGraphics.endFill();
-      floorGraphics.beginFill(COL_BAND_HI, 0.7);
+      floorGraphics.beginFill(bandHi, 0.7);
       floorGraphics.drawRect(0, BAND_TOP, VIEW_W, 5);
       floorGraphics.endFill();
       floorGraphics.beginFill(0x000000, 0.12);
       floorGraphics.drawRect(0, GROUND_Y + 8, VIEW_W, VIEW_H - GROUND_Y - 8);
       floorGraphics.endFill();
 
-      const s = stateRef.current;
       const activePits = s.config.objects.filter(
         (object) => object.type === 'pit' && s.activeObjectIds.has(object.id),
       );
@@ -421,12 +425,12 @@ export default function LevelDevilGame({
         const progress = s.splitPitIds.has(pit.id) ? (s.objectRuntime.get(pit.id)?.split ?? 0) : 1;
         const holeW = pit.width * Math.max(0, Math.min(1, progress));
         if (holeW <= 0) return;
-        floorGraphics.beginFill(COL_BG);
+        floorGraphics.beginFill(bg);
         floorGraphics.drawRect(pit.x - holeW / 2, GROUND_Y - 2, holeW, VIEW_H - GROUND_Y + 16);
         floorGraphics.endFill();
         // jagged broken edges on both sides of the gap for the "floor splitting" look
         if (progress < 1 && s.splitPitIds.has(pit.id)) {
-          floorGraphics.beginFill(COL_BAND_HI, 0.8);
+          floorGraphics.beginFill(bandHi, 0.8);
           floorGraphics.drawRect(pit.x - holeW / 2 - 3, GROUND_Y - 4, 3, 8);
           floorGraphics.drawRect(pit.x + holeW / 2, GROUND_Y - 4, 3, 8);
           floorGraphics.endFill();
@@ -434,7 +438,7 @@ export default function LevelDevilGame({
       });
 
       if (collapsed) {
-        floorGraphics.beginFill(COL_BG);
+        floorGraphics.beginFill(bg);
         floorGraphics.drawRect(90, GROUND_Y - 2, VIEW_W - 180, VIEW_H - GROUND_Y + 16);
         floorGraphics.endFill();
       }
@@ -444,34 +448,35 @@ export default function LevelDevilGame({
     const makeObjectSprite = (object: LevelObject) => {
       let display: PIXI.DisplayObject;
       const active = stateRef.current.activeObjectIds.has(object.id);
+      const col = object.color ? hexToNum(object.color) : null; // per-object color override
       if (object.spriteUrl) {
         const sprite = new PIXI.Sprite(tex(object.spriteUrl));
         sprite.anchor.set(0.5, isBottomAnchored(object.type) ? 1 : 0.5);
         sprite.width = object.width;
         sprite.height = object.height;
-        sprite.tint = active ? 0xffffff : 0x9a9a9a;
+        sprite.tint = col ?? (active ? 0xffffff : 0x9a9a9a);
         display = sprite;
       } else if (object.type === 'spike') {
         const sprite = new PIXI.Sprite(texSpike);
         sprite.anchor.set(0.5, 1);
-        sprite.tint = COL_INK;
+        sprite.tint = col ?? COL_INK;
         sprite.scale.set(object.width / 16, object.height / 16);
         display = sprite;
       } else if (object.type === 'saw') {
         const sprite = new PIXI.Sprite(texSaw);
         sprite.anchor.set(0.5);
-        sprite.tint = active ? 0xffffff : 0x6b4a21;
+        sprite.tint = col ?? (active ? 0xffffff : 0x6b4a21);
         sprite.scale.set(object.width / 16, object.height / 16);
         display = sprite;
       } else if (object.type === 'pit') {
         const g = new PIXI.Graphics();
-        g.beginFill(active ? 0x161616 : 0x6b4a21, active ? 0.9 : 0.45);
+        g.beginFill(col ?? (active ? 0x161616 : 0x6b4a21), active ? 0.9 : 0.45);
         g.drawRect(-object.width / 2, -object.height, object.width, object.height);
         g.endFill();
         display = g;
       } else if (object.type === 'fallingBlock') {
         const g = new PIXI.Graphics();
-        g.beginFill(0x5b3410, active ? 1 : 0.42);
+        g.beginFill(col ?? 0x5b3410, active ? 1 : 0.42);
         g.lineStyle(3, COL_INK, active ? 0.85 : 0.35);
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
         g.endFill();
@@ -481,7 +486,7 @@ export default function LevelDevilGame({
         display = g;
       } else if (object.type === 'crusher') {
         const g = new PIXI.Graphics();
-        g.beginFill(0x3b2611, active ? 1 : 0.45);
+        g.beginFill(col ?? 0x3b2611, active ? 1 : 0.45);
         g.lineStyle(3, 0x8a1f10, active ? 0.9 : 0.35);
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
         g.endFill();
@@ -493,7 +498,7 @@ export default function LevelDevilGame({
         display = g;
       } else if (object.type === 'laser') {
         const g = new PIXI.Graphics();
-        g.beginFill(0xfef08a, active ? 0.95 : 0.25);
+        g.beginFill(col ?? 0xfef08a, active ? 0.95 : 0.25);
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
         g.endFill();
         g.lineStyle(3, 0xef4444, active ? 0.85 : 0.25);
@@ -502,7 +507,7 @@ export default function LevelDevilGame({
         display = g;
       } else if (object.type === 'platform') {
         const g = new PIXI.Graphics();
-        g.beginFill(0xb37111, active ? 1 : 0.45);
+        g.beginFill(col ?? 0xb37111, active ? 1 : 0.45);
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
         g.endFill();
         g.beginFill(0xeab451, active ? 0.85 : 0.3);
@@ -515,7 +520,7 @@ export default function LevelDevilGame({
         // button: a chunky tappable panel with its label
         const box = new PIXI.Container();
         const g = new PIXI.Graphics();
-        g.beginFill(0xffc164, active ? 1 : 0.4);
+        g.beginFill(col ?? 0xffc164, active ? 1 : 0.4);
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
         g.endFill();
         g.beginFill(0xb37111, active ? 1 : 0.4);
@@ -797,6 +802,9 @@ export default function LevelDevilGame({
           s.objectRuntime.set(object.id, { x: object.x, y: object.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 });
         }
       });
+
+      // keep the canvas clear color in sync with the configured background
+      app.renderer.background.color = hexToNum(s.config.bgColor, hexToNum(DEFAULT_BG));
 
       drawFloor(s.floorCollapsed);
       drawObjects();
@@ -1444,6 +1452,8 @@ export default function LevelDevilGame({
   };
   const pix: CSSProperties = { imageRendering: 'pixelated' };
   const isPortrait = orientation === 'vertical';
+  const frameBg = config.bgColor || DEFAULT_BG;
+  const frameBand = config.groundColor || DEFAULT_GROUND;
   const stageButtonBase: CSSProperties = { position: 'absolute', zIndex: 20 };
   const levelViewportStyle: CSSProperties = {
     position: 'absolute',
@@ -1452,7 +1462,7 @@ export default function LevelDevilGame({
     width: isPortrait ? '94.4%' : '53.125%',
     height: isPortrait ? '21.875%' : '38.89%',
     overflow: 'hidden',
-    backgroundColor: '#e2a33c',
+    backgroundColor: frameBand,
   };
 
   return (
@@ -1470,7 +1480,7 @@ export default function LevelDevilGame({
           maxWidth: '100%',
           aspectRatio: isPortrait ? '9 / 16' : '16 / 9',
           overflow: 'hidden',
-          backgroundColor: '#c77b00',
+          backgroundColor: frameBg,
         }}
       >
         <div style={{ ...stageButtonBase, left: isPortrait ? '33%' : '40.6%', top: isPortrait ? '9.7%' : '5%', width: isPortrait ? '34%' : '18.8%' }}>

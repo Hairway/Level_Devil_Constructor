@@ -16,18 +16,22 @@ const escapeHtml = (value: string) =>
     "'": '&#39;',
   })[char] || char);
 
-export const generateStandalonePlayable = (project: PlayableProject) => `<!doctype html>
+export const generateStandalonePlayable = (project: PlayableProject) => {
+  const firstConfig = project.runs[0]?.config || ({} as PlayableProject['runs'][number]['config']);
+  const cssBg = firstConfig.bgColor || '#c77b00';
+  const cssBand = firstConfig.groundColor || '#e2a33c';
+  return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>${escapeHtml(project.name)}</title>
   <style>
-    html,body,#app{margin:0;width:100%;height:100%;overflow:hidden;background:#c77b00;touch-action:none}
+    html,body,#app{margin:0;width:100%;height:100%;overflow:hidden;background:${cssBg};touch-action:none}
     body{font-family:Arial,sans-serif}
     #app{display:flex;align-items:center;justify-content:center}
-    #stage{position:relative;width:min(100vw,56.25vh);height:min(177.7778vw,100vh);background:#c77b00;overflow:hidden}
-    #level{position:absolute;left:2.8%;top:39.0625%;width:94.4%;height:21.875%;overflow:hidden;background:#e2a33c}
+    #stage{position:relative;width:min(100vw,56.25vh);height:min(177.7778vw,100vh);background:${cssBg};overflow:hidden}
+    #level{position:absolute;left:2.8%;top:39.0625%;width:94.4%;height:21.875%;overflow:hidden;background:${cssBand}}
     canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
     .hud{position:absolute;z-index:5;color:#231708;font-family:monospace;font-weight:900;letter-spacing:0;text-align:center;text-transform:uppercase;user-select:none}
     #title{left:7.5%;top:21.7%;width:85%;font-size:clamp(18px,4.1vw,44px)}
@@ -78,7 +82,10 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
     const PROJECT = ${safeProjectJson(project)};
     const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
     const VIEW_W = 800, VIEW_H = 328, GROUND_Y = 280, PLAYER_H = 36, DOOR_CY = -28;
-    const COL_BG = 0xc77b00, COL_BAND = 0xe2a33c, COL_HI = 0xeab451, COL_INK = 0x231708, COL_BTN = 0xffc164;
+    const COL_INK = 0x231708, COL_BTN = 0xffc164;
+    const hx = (h, f) => { if (!h) return f; const s = ('' + h).replace('#', ''); const full = s.length === 3 ? s.split('').map(c => c + c).join('') : s; const n = parseInt(full, 16); return (isFinite(n) && full.length === 6) ? n : f; };
+    const lighten = (n, a) => { const r = Math.min(255, Math.round(((n >> 16) & 255) + 255 * a)); const g = Math.min(255, Math.round(((n >> 8) & 255) + 255 * a)); const b = Math.min(255, Math.round((n & 255) + 255 * a)); return (r << 16) | (g << 8) | b; };
+    let COL_BG = hx('${cssBg}', 0xc77b00), COL_BAND = hx('${cssBand}', 0xe2a33c), COL_HI = lighten(COL_BAND, 0.12);
     const app = new PIXI.Application({ width: VIEW_W, height: VIEW_H, backgroundColor: COL_BG, antialias: false });
     document.getElementById('level').appendChild(app.view);
     const g = new PIXI.Graphics();
@@ -123,6 +130,10 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
     }
 
     function resetRun() {
+      COL_BG = hx(config.bgColor, 0xc77b00);
+      COL_BAND = hx(config.groundColor, 0xe2a33c);
+      COL_HI = lighten(COL_BAND, 0.12);
+      app.renderer.background.color = COL_BG;
       player = { x: config.playerSpawnX, y: GROUND_Y, vx: 0, vy: 0, grounded: false, face: 1 };
       door = { x: config.doorSpawnX, y: GROUND_Y };
       activeIds = new Set(config.objects.filter(o => o.initiallyActive).map(o => o.id));
@@ -204,25 +215,26 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
       if (!active || !appeared) return;
       if (object.spriteUrl) return; // drawn by the sprite layer
       const p = rt || object;
+      const col = object.color ? hx(object.color, 0) : null; // per-object color override
       if (object.type === 'spike') {
-        g.beginFill(COL_INK);
+        g.beginFill(col != null ? col : COL_INK);
         for (let x = p.x - object.width / 2; x < p.x + object.width / 2; x += object.width / 3) {
           g.drawPolygon([x, p.y, x + object.width / 6, p.y - object.height, x + object.width / 3, p.y]);
         }
         g.endFill();
       } else if (object.type === 'saw') {
-        g.beginFill(0x8a1f10);
+        g.beginFill(col != null ? col : 0x8a1f10);
         g.drawCircle(p.x, p.y, object.width / 2);
         g.endFill();
         g.lineStyle(3, COL_INK, .8);
         g.drawCircle(p.x, p.y, object.width / 3);
       } else if (object.type === 'fallingBlock') {
-        g.beginFill(0x5b3410);
+        g.beginFill(col != null ? col : 0x5b3410);
         g.lineStyle(3, COL_INK, .85);
         g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
       } else if (object.type === 'crusher') {
-        g.beginFill(0x3b2611);
+        g.beginFill(col != null ? col : 0x3b2611);
         g.lineStyle(3, 0x8a1f10, .9);
         g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
@@ -232,14 +244,14 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
         }
         g.endFill();
       } else if (object.type === 'laser') {
-        g.beginFill(0xfef08a, .95);
+        g.beginFill(col != null ? col : 0xfef08a, .95);
         g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
         g.lineStyle(3, 0xef4444, .85);
         g.moveTo(p.x - object.width / 2, p.y);
         g.lineTo(p.x + object.width / 2, p.y);
       } else if (object.type === 'platform') {
-        g.beginFill(0xb37111);
+        g.beginFill(col != null ? col : 0xb37111);
         g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
         g.beginFill(0xeab451, .85);
@@ -248,7 +260,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
         g.lineStyle(2, COL_INK, .7);
         g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
       } else if (object.type === 'button') {
-        g.beginFill(COL_BTN);
+        g.beginFill(col != null ? col : COL_BTN);
         g.drawRect(p.x - object.width / 2, p.y - object.height / 2, object.width, object.height);
         g.endFill();
         g.beginFill(0xb37111);
@@ -273,6 +285,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
           }
           const p = rt || o;
           s.visible = true; s.width = o.width; s.height = o.height; s.x = p.x; s.y = p.y;
+          s.tint = o.color ? hx(o.color, 0xffffff) : 0xffffff;
         } else if (s) {
           s.visible = false;
         }
@@ -482,3 +495,4 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
   </script>
 </body>
 </html>`;
+};

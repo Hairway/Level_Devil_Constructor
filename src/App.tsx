@@ -15,7 +15,7 @@ import {
 } from './types';
 import LevelDevilGame from './components/LevelDevilGame';
 import ErrorBoundary from './components/ErrorBoundary';
-import { defaultAction, defaultMotion, objectCatalog, objectMotion, objectPreset } from './objectModel';
+import { DEFAULT_BG, DEFAULT_GROUND, defaultAction, defaultMotion, objectCatalog, objectMotion, objectPreset } from './objectModel';
 import { generateStandalonePlayable } from './exportPlayable';
 
 // Lazy so Firebase/Drive stays out of the initial bundle and only loads when opened.
@@ -37,6 +37,8 @@ import {
   Layers,
   Link2,
   MousePointer2,
+  Palette,
+  Pipette,
   Plus,
   RotateCcw,
   Sliders,
@@ -264,6 +266,70 @@ const SelectField = <T extends string>({ label, value, options, onChange }: {
     </select>
   </label>
 );
+
+// Level Devil–flavored preset swatches for quick recoloring.
+const PALETTE = ['#c77b00', '#e2a33c', '#231708', '#8a1f10', '#ef4444', '#f59e0b', '#fef08a', '#10b981', '#38bdf8', '#a855f7', '#ffffff', '#000000'];
+
+const ColorField = ({ label, value, onChange, onReset }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onReset?: () => void;
+}) => {
+  const hasEyeDropper = typeof window !== 'undefined' && 'EyeDropper' in window;
+  const pickWithEyeDropper = async () => {
+    try {
+      const result = await new (window as any).EyeDropper().open();
+      if (result?.sRGBHex) onChange(result.sRGBHex);
+    } catch {
+      /* user cancelled */
+    }
+  };
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</span>
+        {onReset && (
+          <button onClick={onReset} className="text-[10px] text-zinc-500 hover:text-zinc-300 cursor-pointer">reset</button>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-9 h-8 bg-black border border-zinc-800 rounded cursor-pointer p-0.5"
+          title="Pick color"
+        />
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1 bg-black border border-zinc-800 rounded px-2 py-1.5 text-[11px] font-mono text-zinc-300"
+        />
+        {hasEyeDropper && (
+          <button
+            onClick={pickWithEyeDropper}
+            title="Eyedropper — pick any color on screen"
+            className="w-8 h-8 shrink-0 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded flex items-center justify-center cursor-pointer"
+          >
+            <Pipette className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {PALETTE.map((c) => (
+          <button
+            key={c}
+            onClick={() => onChange(c)}
+            title={c}
+            className={`w-5 h-5 rounded border ${value.toLowerCase() === c.toLowerCase() ? 'border-white' : 'border-zinc-700'} cursor-pointer`}
+            style={{ backgroundColor: c }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const MOTION_MODES: Array<{ value: MotionMode; label: string }> = [
   { value: 'static', label: 'Static' },
@@ -911,6 +977,27 @@ export default function App() {
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <Palette className="w-3.5 h-3.5" />
+              Scene Colors
+            </h3>
+            <div className="space-y-3">
+              <ColorField
+                label="Background"
+                value={config.bgColor || DEFAULT_BG}
+                onChange={(bgColor) => updateActiveConfig({ ...config, bgColor })}
+                onReset={config.bgColor && config.bgColor !== DEFAULT_BG ? () => updateActiveConfig({ ...config, bgColor: DEFAULT_BG }) : undefined}
+              />
+              <ColorField
+                label="Ground"
+                value={config.groundColor || DEFAULT_GROUND}
+                onChange={(groundColor) => updateActiveConfig({ ...config, groundColor })}
+                onReset={config.groundColor && config.groundColor !== DEFAULT_GROUND ? () => updateActiveConfig({ ...config, groundColor: DEFAULT_GROUND }) : undefined}
+              />
+            </div>
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3">
               Selected: <span className="text-amber-400">{selectedObjectLabel(config, selectedEntityId)}</span>
             </h3>
@@ -954,6 +1041,12 @@ export default function App() {
                     onChange={(role) => updateSelectedObject({ role: role as CollisionRole })}
                   />
                   <NumberField label="Appear delay (s)" value={selectedObject.appearDelay || 0} min={0} max={10} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
+                  <ColorField
+                    label="Color"
+                    value={selectedObject.color || '#ffffff'}
+                    onChange={(color) => updateSelectedObject({ color })}
+                    onReset={selectedObject.color ? () => updateSelectedObject({ color: undefined }) : undefined}
+                  />
                   <label className="block">
                     <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Custom sprite URL</span>
                     <input

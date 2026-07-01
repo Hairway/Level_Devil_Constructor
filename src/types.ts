@@ -51,6 +51,7 @@ export interface LevelObject {
   label: string;
   initiallyActive: boolean;
   // Optional flexible-entity fields (older configs work without them).
+  color?: string; // hex tint/fill override for this obstacle
   role?: CollisionRole;
   motion?: ObjectMotion;
   clickable?: boolean; // behaves like a button: tap fires `action`
@@ -84,6 +85,8 @@ export interface GameConfig {
   doorSpawnX: number;
   objects: LevelObject[];
   triggers: TriggerZone[];
+  bgColor?: string; // scene backdrop color (hex)
+  groundColor?: string; // floor/ground band color (hex)
 }
 
 export interface PlayableRun {

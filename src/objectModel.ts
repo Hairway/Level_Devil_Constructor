@@ -3,6 +3,27 @@ import { CollisionRole, LevelObject, ObjectAction, ObjectMotion, TrapObjectType 
 // Ground line shared with the engine (LevelDevilGame keeps its own GROUND_Y constant equal to this).
 export const GROUND_Y = 280;
 
+// Default scene colors (also the Level Devil look). Configs may override per run / per object.
+export const DEFAULT_BG = '#c77b00';
+export const DEFAULT_GROUND = '#e2a33c';
+
+export const hexToNum = (hex: string | undefined, fallback = 0): number => {
+  if (!hex) return fallback;
+  const h = hex.replace('#', '').trim();
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  return Number.isFinite(n) && full.length === 6 ? n : fallback;
+};
+
+export const numToHex = (n: number): string => `#${(n & 0xffffff).toString(16).padStart(6, '0')}`;
+
+export const lightenNum = (n: number, amt: number): number => {
+  const r = Math.min(255, Math.round(((n >> 16) & 255) + 255 * amt));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) + 255 * amt));
+  const b = Math.min(255, Math.round((n & 255) + 255 * amt));
+  return (r << 16) | (g << 8) | b;
+};
+
 export interface ObjectPreset {
   type: TrapObjectType;
   label: string;
