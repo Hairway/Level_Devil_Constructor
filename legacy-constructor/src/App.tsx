@@ -344,6 +344,7 @@ const MOTION_MODES: Array<{ value: MotionMode; label: string }> = [
   { value: 'fall', label: 'Fall' },
   { value: 'orbit', label: 'Orbit (circle a point)' },
   { value: 'pendulum', label: 'Pendulum (swing)' },
+  { value: 'path', label: 'Path (waypoints)' },
 ];
 const FONT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'Arial', label: 'Arial' },
@@ -1375,6 +1376,44 @@ export default function App() {
                         )}
                         <p className="text-[10px] text-zinc-600">{selObjMotion.mode === 'orbit' ? 'Circles around the point where you placed it.' : 'Swings like a blade; rest position is where you placed it.'}</p>
                       </>
+                    )}
+                    {selObjMotion.mode === 'path' && selectedObject && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase tracking-wider text-zinc-500">Waypoints (start = placed point)</span>
+                          <button
+                            onClick={() => {
+                              const wps = selObjMotion.waypoints || [];
+                              const last = wps.length ? wps[wps.length - 1] : { x: selectedObject.x, y: selectedObject.y };
+                              updateSelectedMotion({ waypoints: [...wps, { x: Math.min(800, last.x + 60), y: last.y }] });
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" /> Add point
+                          </button>
+                        </div>
+                        {(selObjMotion.waypoints || []).length === 0 && (
+                          <p className="text-[10px] text-zinc-600">Add points; the object travels placed→1→2→… Enable loop to patrol back and forth.</p>
+                        )}
+                        {(selObjMotion.waypoints || []).map((wp, i) => (
+                          <div key={i} className="grid grid-cols-[auto_1fr_1fr_auto] gap-1.5 items-end">
+                            <span className="text-[10px] text-zinc-500 pb-2">#{i + 1}</span>
+                            <NumberField label="X" value={wp.x} min={0} max={800} onChange={(x) => updateSelectedMotion({ waypoints: (selObjMotion.waypoints || []).map((p, idx) => idx === i ? { ...p, x } : p) })} />
+                            <NumberField label="Y" value={wp.y} min={0} max={328} onChange={(y) => updateSelectedMotion({ waypoints: (selObjMotion.waypoints || []).map((p, idx) => idx === i ? { ...p, y } : p) })} />
+                            <button
+                              onClick={() => updateSelectedMotion({ waypoints: (selObjMotion.waypoints || []).filter((_, idx) => idx !== i) })}
+                              className="mb-0.5 p-1.5 rounded bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 cursor-pointer"
+                              title="Remove point"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                        <label className="flex items-center gap-2 text-zinc-400">
+                          <input type="checkbox" checked={selObjMotion.loop} onChange={(e) => updateSelectedMotion({ loop: e.target.checked })} />
+                          Patrol back and forth (loop)
+                        </label>
+                      </div>
                     )}
                     {selObjMotion.mode !== 'static' && (
                       <SelectField

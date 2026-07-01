@@ -11,7 +11,7 @@ export type TrapObjectType =
 export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
 
 // How an object behaves over time once it is active.
-export type MotionMode = 'static' | 'linear' | 'chase' | 'fall' | 'orbit' | 'pendulum';
+export type MotionMode = 'static' | 'linear' | 'chase' | 'fall' | 'orbit' | 'pendulum' | 'path';
 // How an object collides with the player.
 export type CollisionRole = 'hazard' | 'solid' | 'pit' | 'decor' | 'spring';
 // What an object/trigger does when fired (touch by player, or tap when clickable).
@@ -34,10 +34,11 @@ export interface ObjectMotion {
   speed: number; // px per frame
   dirX: number; // -1..1, used for linear
   dirY: number; // -1..1, used for linear
-  distance: number; // max travel distance for linear (0 = infinite)
-  loop: boolean; // ping-pong back and forth for linear
+  distance: number; // max travel distance for linear (0 = infinite); radius for orbit/pendulum
+  loop: boolean; // ping-pong back and forth (linear/path) or reverse direction (orbit)
   startOn: 'spawn' | 'trigger';
   delay: number; // seconds before the motion starts
+  waypoints?: Array<{ x: number; y: number }>; // path mode: points travelled after the placed start
 }
 
 export interface ObjectAction {
