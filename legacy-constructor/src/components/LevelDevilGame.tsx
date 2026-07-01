@@ -127,6 +127,7 @@ export default function LevelDevilGame({
     playerMoved: false,
     activeObjectIds: new Set<string>(),
     firedTriggerIds: new Set<string>(),
+    triggerTimers: new Map<string, number>(),
     motionRunIds: new Set<string>(),
     splitPitIds: new Set<string>(),
     objectRuntime: new Map<string, ObjectRuntime>(),
@@ -460,7 +461,7 @@ export default function LevelDevilGame({
       let display: PIXI.DisplayObject;
       const active = stateRef.current.activeObjectIds.has(object.id);
       const col = object.color ? hexToNum(object.color) : null; // per-object color override
-      if (object.spriteUrl) {
+      if (object.spriteUrl && object.type !== 'button') {
         const sprite = new PIXI.Sprite(tex(object.spriteUrl));
         sprite.anchor.set(0.5, isBottomAnchored(object.type) ? 1 : 0.5);
         sprite.width = object.width;
@@ -528,25 +529,37 @@ export default function LevelDevilGame({
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
         display = g;
       } else {
-        // button: a chunky tappable panel with its label
+        // button: optional texture (or a chunky panel) with custom text on top
         const box = new PIXI.Container();
-        const g = new PIXI.Graphics();
-        g.beginFill(col ?? 0xffc164, active ? 1 : 0.4);
-        g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
-        g.endFill();
-        g.beginFill(0xb37111, active ? 1 : 0.4);
-        g.drawRect(-object.width / 2, object.height / 2 - 6, object.width, 6);
-        g.endFill();
-        box.addChild(g);
-        const text = new PIXI.Text((object.label || 'BTN').toUpperCase(), {
-          fill: COL_INK,
-          fontSize: Math.min(12, object.height - 10),
-          fontFamily: 'monospace',
-          fontWeight: 'bold',
-        });
-        text.anchor.set(0.5);
-        text.resolution = 2;
-        box.addChild(text);
+        if (object.spriteUrl) {
+          const sprite = new PIXI.Sprite(tex(object.spriteUrl));
+          sprite.anchor.set(0.5);
+          sprite.width = object.width;
+          sprite.height = object.height;
+          if (col != null) sprite.tint = col;
+          box.addChild(sprite);
+        } else {
+          const g = new PIXI.Graphics();
+          g.beginFill(col ?? 0xffc164, active ? 1 : 0.4);
+          g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
+          g.endFill();
+          g.beginFill(0xb37111, active ? 1 : 0.4);
+          g.drawRect(-object.width / 2, object.height / 2 - 6, object.width, 6);
+          g.endFill();
+          box.addChild(g);
+        }
+        const label = object.text ?? object.label ?? '';
+        if (label) {
+          const text = new PIXI.Text(label.toUpperCase(), {
+            fill: object.textColor ? hexToNum(object.textColor) : COL_INK,
+            fontSize: Math.min(14, object.height - 8),
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+          });
+          text.anchor.set(0.5);
+          text.resolution = 2;
+          box.addChild(text);
+        }
         display = box;
       }
       const runtime = stateRef.current.editorMode === 'play' ? stateRef.current.objectRuntime.get(object.id) : undefined;
@@ -864,6 +877,7 @@ export default function LevelDevilGame({
       s.spawnFrames = 10;
       s.activeObjectIds = new Set(s.config.objects.filter((object) => object.initiallyActive).map((object) => object.id));
       s.firedTriggerIds = new Set();
+      s.triggerTimers = new Map();
       s.splitPitIds = new Set();
       // Motion is allowed to run immediately for objects whose motion starts on spawn.
       s.motionRunIds = new Set(
@@ -1238,10 +1252,15 @@ export default function LevelDevilGame({
       const playerRect = { x: player.x - 10, y: player.y - PLAYER_H, w: 20, h: PLAYER_H };
 
       s.config.triggers.forEach((trigger) => {
-        if (
-          rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, trigger.x, trigger.y, trigger.width, trigger.height)
-        ) {
-          activateTrigger(trigger);
+        const over = rectsOverlap(playerRect.x, playerRect.y, playerRect.w, playerRect.h, trigger.x, trigger.y, trigger.width, trigger.height);
+        const delay = trigger.delay || 0;
+        if (over) {
+          const t = (s.triggerTimers.get(trigger.id) || 0) + (1 / 60) * delta;
+          s.triggerTimers.set(trigger.id, t);
+          if (t >= delay) activateTrigger(trigger); // activateTrigger guards against re-firing
+        } else {
+          s.triggerTimers.set(trigger.id, 0);
+          if (trigger.repeat) s.firedTriggerIds.delete(trigger.id); // allow re-fire on re-entry
         }
       });
 
@@ -1261,6 +1280,24 @@ export default function LevelDevilGame({
         if (object.type === 'pit' && s.splitPitIds.has(object.id) && rt.split < 1) {
           rt.split = Math.min(1, rt.split + (1 / 24) * delta); // floor splits over ~0.4s
           objectsDirty = true;
+        }
+
+        // attached objects follow their parent (e.g. spikes riding the door); no self-motion
+        if (object.attachTo) {
+          let baseX: number | undefined, baseY = 0, curX = 0, curY = 0;
+          if (object.attachTo === 'door') { baseX = s.config.doorSpawnX; baseY = GROUND_Y; curX = doorContainer.x; curY = doorContainer.y; }
+          else if (object.attachTo === 'player') { baseX = s.config.playerSpawnX; baseY = GROUND_Y; curX = player.x; curY = player.y; }
+          else {
+            const po = s.config.objects.find((o) => o.id === object.attachTo);
+            const prt = s.objectRuntime.get(object.attachTo);
+            if (po) { baseX = po.x; baseY = po.y; curX = prt ? prt.x : po.x; curY = prt ? prt.y : po.y; }
+          }
+          if (baseX !== undefined) {
+            rt.x = curX + (object.x - baseX);
+            rt.y = curY + (object.y - baseY);
+            objectsDirty = true;
+            continue;
+          }
         }
 
         const m = objectMotion(object);
