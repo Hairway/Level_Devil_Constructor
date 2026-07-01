@@ -126,6 +126,7 @@ export default function LevelDevilGame({
     splashActive: true,
     playerMoved: false,
     activeObjectIds: new Set<string>(),
+    hiddenObjectIds: new Set<string>(),
     firedTriggerIds: new Set<string>(),
     triggerTimers: new Map<string, number>(),
     motionRunIds: new Set<string>(),
@@ -730,7 +731,7 @@ export default function LevelDevilGame({
 
       s.config.objects.forEach((object) => {
         const runtime = s.objectRuntime.get(object.id);
-        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
         const appeared = !play || (runtime ? runtime.since >= (object.appearDelay || 0) : true);
 
         if (play) {
@@ -790,7 +791,7 @@ export default function LevelDevilGame({
           display.x = rt.x;
           display.y = rt.y;
         }
-        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
         const appeared = rt ? rt.since >= (object.appearDelay || 0) : true;
         display.visible = active && appeared;
       });
@@ -880,6 +881,7 @@ export default function LevelDevilGame({
       s.playerMoved = false;
       s.spawnFrames = 10;
       s.activeObjectIds = new Set(s.config.objects.filter((object) => object.initiallyActive).map((object) => object.id));
+      s.hiddenObjectIds = new Set();
       s.firedTriggerIds = new Set();
       s.triggerTimers = new Map();
       s.splitPitIds = new Set();
@@ -990,8 +992,31 @@ export default function LevelDevilGame({
           ensureRuntime(targetId);
           onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} opened ${targetLabel}`);
           break;
+        case 'deactivate':
+          s.hiddenObjectIds.add(targetId);
+          s.activeObjectIds.delete(targetId);
+          s.motionRunIds.delete(targetId);
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} deactivated ${targetLabel}`);
+          break;
+        case 'toggle': {
+          const target = s.config.objects.find((o) => o.id === targetId);
+          const currentlyActive = !!target && (s.activeObjectIds.has(targetId) || target.initiallyActive) && !s.hiddenObjectIds.has(targetId);
+          if (currentlyActive) {
+            s.hiddenObjectIds.add(targetId);
+            s.activeObjectIds.delete(targetId);
+            s.motionRunIds.delete(targetId);
+          } else {
+            s.hiddenObjectIds.delete(targetId);
+            s.activeObjectIds.add(targetId);
+            s.motionRunIds.add(targetId);
+            ensureRuntime(targetId);
+          }
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} toggled ${targetLabel}`);
+          break;
+        }
         case 'activate':
         default:
+          s.hiddenObjectIds.delete(targetId);
           s.activeObjectIds.add(targetId);
           s.motionRunIds.add(targetId);
           ensureRuntime(targetId);
@@ -1228,7 +1253,7 @@ export default function LevelDevilGame({
       for (const object of s.config.objects) {
         const role = effectiveRole(object);
         if (role !== 'solid' && role !== 'spring') continue;
-        if (!(s.activeObjectIds.has(object.id) || object.initiallyActive)) continue;
+        if (!((s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id))) continue;
         const r = objectWorldRect(object);
         const prevFoot = player.y - s.playerVelY * delta;
         if (s.playerVelY >= 0 && player.x > r.x && player.x < r.x + r.w && prevFoot <= r.y + 2 && player.y >= r.y) {
@@ -1293,7 +1318,7 @@ export default function LevelDevilGame({
       // --- advance per-object timers, reveal-on-delay, floor-split and motion ---
       let objectsDirty = false;
       for (const object of s.config.objects) {
-        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
         if (!active) continue;
         const rt = s.objectRuntime.get(object.id);
         if (!rt) continue;
@@ -1379,7 +1404,7 @@ export default function LevelDevilGame({
       }
 
       for (const object of s.config.objects) {
-        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
         if (!active) continue;
         const rt = s.objectRuntime.get(object.id);
         if ((object.appearDelay || 0) > 0 && rt && rt.since < object.appearDelay!) continue; // not appeared yet

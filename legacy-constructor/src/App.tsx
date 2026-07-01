@@ -348,7 +348,9 @@ const ROLE_OPTIONS: Array<{ value: CollisionRole; label: string }> = [
 ];
 const ACTION_OPTIONS: Array<{ value: ObjectActionKind; label: string }> = [
   { value: 'none', label: 'None' },
-  { value: 'activate', label: 'Activate target' },
+  { value: 'activate', label: 'Activate target (show)' },
+  { value: 'deactivate', label: 'Deactivate target (hide/vanish)' },
+  { value: 'toggle', label: 'Toggle target (show/hide)' },
   { value: 'openPit', label: 'Open pit' },
   { value: 'splitFloor', label: 'Split floor open' },
   { value: 'collapseFloor', label: 'Collapse whole floor' },
