@@ -1,0 +1,20 @@
+imp.webp
+size:1098,393
+filter:Linear,Linear
+scale:0.8
+Ellipse 1
+bounds:734,26,365,30
+offsets:8,3,381,36
+rotate:90
+Generative Fill 2
+bounds:766,122,269,160
+rotate:90
+Generative Fill 3
+bounds:928,140,251,168
+rotate:90
+body
+bounds:2,2,389,730
+rotate:90
+eyes
+bounds:766,3,223,117
+offsets:0,0,223,118

@@ -1,20 +1,100 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/d672e799-053e-4f47-8a60-d855ee3fb4aa
-
-## Run Locally
-
-**Prerequisites:**  Node.js
+<p align="center">
+CATION PLAYABLE TEMPLATE
+</p>
+<p align="center">
+<img width="830" height="auto" src="https://studiocation.com/images/playable_title_5_1_3.jpg">
+</p>
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Документация
+
+[Playable template WIKI](https://github.com/StudioCation/PlayableTemplate/wiki)
+
+## Настройка окружения
+
+- Скачиваем и устанавливаем [**nodejs**](https://nodejs.org).
+- Скачиваем и устанавливаем [**git**](https://git-scm.com/downloads).
+
+
+## Последовательность работы
+
+1. Клонирование шаблона из git
+2. Именование рабочей папки
+3. Установка node модулей
+4. Установка подшаблона игры (2d, 3d и т.д.)
+5. Запуск проекта в dev режиме и создание плейбла
+6. Сборка проекта
+7. Сборка сета
+
+
+## Начало работы над проектом
+
+- Открываем консоль в папке проекта.
+- Клонируем шаблон командой:
+```
+    git clone https://github.com/StudioCation/PlayableTemplate.git
+```
+- Проверяем ветку:
+```
+    git branch
+```
+- Можно сменить ветку:
+```
+    git checkout develop
+```
+Ветка **develop** содержит все последние изменения. Ветка **main** стабильная.
+- Переименовываем папку **PlayableTemplate** в рабочее название (например: playable001_01_preview).
+- Переходим в папку плейбла (или открываем консоль в ней):
+```
+    cd playable001_01_preview    
+```
+- Устанавливаем модули:
+```   
+    npm install
+```
+
+
+## Запуск режима разработки
+
+Для запуска локального сервера вызываем:
+```
+    npm run dev
+```
+Проект откроется в браузере. Все изменения будут автоматически обновлять страницу браузера.
+Чтобы закончить работу нажимаем Ctrl+C.
+
+
+## Установка подшаблона игры
+
+Для установки загатовки будущей игры вызываем:
+```
+    npm run game_3d_tpi
+```
+Доступные команды находятся в **package.json**. Некоторые из них:
+```
+    npm run game_2d
+```
+```
+    npm run game_3d
+```
+```
+    npm run game_3d_tpi
+```
+**Установка подшаблона перезаписывает код и ассеты.**
+
+
+## Установка нужной версии пакета
+
+Пример установки определенной весрии **threejs**: 
+```
+    npm install three@npm:three@0.162.0
+```
+
+
+## Сборка проекта
+
+Для сборки проекта вызываем:
+```
+    npm run build
+```
+После сдачи проекта **node_modules** можно удалить.
