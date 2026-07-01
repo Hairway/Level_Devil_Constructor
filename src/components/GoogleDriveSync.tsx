@@ -14,8 +14,6 @@ import {
 import { GameConfig } from '../types';
 import {
   Cloud,
-  CloudLightning,
-  CloudOff,
   FolderOpen,
   Save,
   Trash2,
@@ -26,8 +24,7 @@ import {
   Lock,
   ChevronRight,
   Info,
-  FolderDown,
-  Download
+  FolderDown
 } from 'lucide-react';
 
 interface GoogleDriveSyncProps {

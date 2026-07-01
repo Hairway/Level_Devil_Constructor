@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AnalyticsEvent,
   CollisionRole,
@@ -14,13 +14,18 @@ import {
   TriggerZone,
 } from './types';
 import LevelDevilGame from './components/LevelDevilGame';
+import ErrorBoundary from './components/ErrorBoundary';
 import { defaultAction, defaultMotion, objectCatalog, objectMotion, objectPreset } from './objectModel';
 import { generateStandalonePlayable } from './exportPlayable';
+
+// Lazy so Firebase/Drive stays out of the initial bundle and only loads when opened.
+const GoogleDriveSync = lazy(() => import('./components/GoogleDriveSync'));
 import {
   ArrowDown,
   ArrowUp,
   Boxes,
   Check,
+  Cloud,
   Copy,
   Download,
   Eye,
@@ -292,6 +297,7 @@ export default function App() {
   const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
   const [showTriggers, setShowTriggers] = useState(true);
   const [showConnectors, setShowConnectors] = useState(true);
+  const [showDriveSync, setShowDriveSync] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [jsonText, setJsonText] = useState('');
   const [isJsonValid, setIsJsonValid] = useState(true);
@@ -477,6 +483,21 @@ export default function App() {
     updateActiveConfig(next);
     setSelectedEntityId(null);
   };
+
+  // Delete / Backspace removes the selected object or trigger (unless typing in a field).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (editorMode !== 'constructor') return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEntityId && selectedEntityId !== 'playerSpawn' && selectedEntityId !== 'door') {
+        e.preventDefault();
+        deleteSelected();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const updateSelectedObject = (patch: Partial<LevelObject>) => {
     if (!selectedEntityId) return;
@@ -1117,6 +1138,29 @@ export default function App() {
                 HTML
               </a>
             </div>
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <button
+              onClick={() => setShowDriveSync((v) => !v)}
+              className="w-full flex items-center justify-between text-xs font-bold uppercase tracking-wider text-zinc-400 cursor-pointer"
+            >
+              <span className="flex items-center gap-2"><Cloud className="w-3.5 h-3.5" /> Google Drive Sync</span>
+              <span className="text-[10px] text-zinc-500">{showDriveSync ? 'Hide' : 'Show'}</span>
+            </button>
+            {showDriveSync && (
+              <div className="mt-3">
+                <ErrorBoundary fallback={<p className="text-[10px] text-red-400">Drive module failed to load (check Firebase config).</p>}>
+                  <Suspense fallback={<p className="text-[10px] text-zinc-500">Loading Drive module…</p>}>
+                    <GoogleDriveSync
+                      currentConfig={config}
+                      onConfigChange={updateActiveConfig}
+                      onLogEvent={addLog}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
+              </div>
+            )}
           </section>
         </div>
       </div>

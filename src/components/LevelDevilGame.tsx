@@ -328,6 +328,7 @@ export default function LevelDevilGame({
     const texDoorKiller = tex(A.doorKiller);
     const texSpike = tex(A.spike);
     const texSaw = tex(A.sawblade);
+    const texTrigger = tex(A.trigger);
 
     const world = new PIXI.Container();
     const floorGraphics = new PIXI.Graphics();
@@ -645,9 +646,19 @@ export default function LevelDevilGame({
           strokeThickness: 2,
         });
         label.x = 4;
-        label.y = 4;
+        label.y = 16;
         label.resolution = 2;
         box.addChild(label);
+
+        // real Level Devil trigger-plate icon in the corner as a visual cue
+        const icon = new PIXI.Sprite(texTrigger);
+        icon.anchor.set(1, 0);
+        icon.width = 16;
+        icon.height = 16;
+        icon.x = trigger.width - 3;
+        icon.y = 3;
+        icon.alpha = selected ? 1 : 0.85;
+        box.addChild(icon);
 
         box.x = trigger.x;
         box.y = trigger.y;
@@ -948,7 +959,8 @@ export default function LevelDevilGame({
       const next = cloneConfig(s.config);
       const id = `${s.currentTool}-${Date.now().toString(36)}`;
       if (s.currentTool === 'trigger') {
-        const target = next.objects[0];
+        // link the new trigger to the nearest object by default (or the door if none)
+        const target = [...next.objects].sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x))[0];
         next.triggers.push({
           id,
           x: x - 35,
