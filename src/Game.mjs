@@ -88,6 +88,17 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#state = 1;
 		this.#app.statisticManager.handlerEvent("CHALLENGE_STARTED");
 		this.#app.soundManager.on(this.#numClicks);
+		this.#playSound("bg_music", true); // start looping background music on first move
+	}
+
+	// safe sound helper — no-op if the sound/manager isn't available
+	#playSound(name, loop = false) {
+		try {
+			const sm = this.#app.soundManager;
+			if (!sm) return;
+			if (loop) { if (sm.setMusic) sm.setMusic(name); if (sm.loop) sm.loop(name); else if (sm.play) sm.play(name); }
+			else if (sm.play) sm.play(name);
+		} catch (e) { /* sound optional */ }
 	}
 	#jump() {
 		this.#startPlaying();
@@ -602,7 +613,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			const r = this.#objectWorldRect(o);
 			const prevFoot = py - this.#vy * dt;
 			if (this.#vy >= 0 && px > r.x && px < r.x + r.w && prevFoot <= r.y + 2 && py >= r.y) {
-				if (role === "spring") { py = r.y; this.#vy = -(o.bounce || 18); this.#grounded = false; }
+				if (role === "spring") { py = r.y; this.#vy = -(o.bounce || 18); this.#grounded = false; this.#playSound("SFX_spring"); }
 				else { py = r.y; this.#vy = 0; this.#grounded = true; landed = true; }
 			}
 		}
