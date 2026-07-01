@@ -1,0 +1,43 @@
+﻿{"frames": {
+
+"vfx_confetti_0.png":
+{
+	"frame": {"x":0,"y":0,"w":70,"h":117},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":70,"h":117},
+	"sourceSize": {"w":70,"h":117}
+},
+"vfx_confetti_1.png":
+{
+	"frame": {"x":0,"y":117,"w":70,"h":117},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":70,"h":117},
+	"sourceSize": {"w":70,"h":117}
+},
+"vfx_confetti_2.png":
+{
+	"frame": {"x":70,"y":0,"w":70,"h":117},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":70,"h":117},
+	"sourceSize": {"w":70,"h":117}
+},
+"vfx_confetti_3.png":
+{
+	"frame": {"x":70,"y":117,"w":70,"h":117},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":70,"h":117},
+	"sourceSize": {"w":70,"h":117}
+}},
+"meta": {
+	"app": "Adobe Animate",
+	"version": "24.0.7.61",
+	"image": "vfxConfetti.png",
+	"format": "RGBA8888",
+	"size": {"w":256,"h":256},
+	"scale": "1"
+}
+}
