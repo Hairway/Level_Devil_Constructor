@@ -73,6 +73,7 @@ export default function LevelDevilGame({
   gridSnap,
   onConfigChange,
   onSelectEntity,
+  onDeleteEntity,
   onLogEvent,
   onRunComplete,
   onDeath,
@@ -88,8 +89,8 @@ export default function LevelDevilGame({
 
   // The PIXI setup effect runs once (deps [orientation]) and closes over these callbacks, so keep
   // the latest versions in a ref — otherwise edits always target the run active at mount (run 1).
-  const cbRef = useRef({ onConfigChange, onSelectEntity, onLogEvent, onRunComplete, onDeath });
-  cbRef.current = { onConfigChange, onSelectEntity, onLogEvent, onRunComplete, onDeath };
+  const cbRef = useRef({ onConfigChange, onSelectEntity, onDeleteEntity, onLogEvent, onRunComplete, onDeath });
+  cbRef.current = { onConfigChange, onSelectEntity, onDeleteEntity, onLogEvent, onRunComplete, onDeath };
 
   const [isMuted, setIsMuted] = useState(false);
   const [isSkipVisible, setIsSkipVisible] = useState(false);
@@ -323,6 +324,7 @@ export default function LevelDevilGame({
     // Always call the latest props (this effect only runs once) so edits hit the active run.
     const onConfigChange = (c: GameConfig) => cbRef.current.onConfigChange(c);
     const onSelectEntity = (id: string | null) => cbRef.current.onSelectEntity(id);
+    const onDeleteEntity = (id: string) => cbRef.current.onDeleteEntity(id);
     const onLogEvent = (t: string, m: string) => cbRef.current.onLogEvent(t, m);
     const onRunComplete = (n: ActiveRun) => cbRef.current.onRunComplete(n);
     const onDeath = () => cbRef.current.onDeath();
@@ -798,6 +800,9 @@ export default function LevelDevilGame({
           onSelectEntity(trigger.id);
         });
         triggersLayer.addChild(box);
+        if (selected) {
+          triggersLayer.addChild(makeEntityToolbar(trigger.x + trigger.width / 2, trigger.y - 14, trigger.id));
+        }
       });
     };
 
@@ -816,6 +821,43 @@ export default function LevelDevilGame({
     const fireObjectAction = (object: LevelObject) => {
       if (object.action && object.action.kind !== 'none') runActionRef.current(object.action.kind, object.action.targetId, object.label);
       for (const l of (object.links || [])) runActionRef.current(l.action, l.targetId, object.label);
+    };
+
+    // Small in-viewport toolbar for the selected entity: delete (✕) + optional lock toggle.
+    const makeEntityToolbar = (cx: number, topY: number, id: string, obj?: LevelObject) => {
+      const bar = new PIXI.Container();
+      const mkBtn = (offset: number, glyph: string, bg: number, onTap: () => void) => {
+        const btn = new PIXI.Container();
+        const g = new PIXI.Graphics();
+        g.beginFill(bg, 0.95);
+        g.lineStyle(1.5, 0xffffff, 0.9);
+        g.drawCircle(0, 0, 9);
+        g.endFill();
+        btn.addChild(g);
+        const t = new PIXI.Text(glyph, { fill: 0xffffff, fontSize: 12, fontFamily: 'monospace', fontWeight: 'bold' });
+        t.anchor.set(0.5);
+        t.y = -0.5;
+        t.resolution = 2;
+        btn.addChild(t);
+        btn.x = offset;
+        btn.eventMode = 'static';
+        btn.cursor = 'pointer';
+        btn.on('pointerdown', (e: any) => { e.stopPropagation?.(); onTap(); });
+        bar.addChild(btn);
+      };
+      // delete
+      mkBtn(0, '✕', 0xdc2626, () => onDeleteEntity(id));
+      // lock toggle (objects only)
+      if (obj) {
+        mkBtn(24, obj.locked ? '🔒' : '🔓', obj.locked ? 0xb45309 : 0x3f3f46, () => {
+          const next = cloneConfig(stateRef.current.config);
+          next.objects = next.objects.map((o) => o.id === id ? { ...o, locked: !o.locked } : o);
+          onConfigChange(next);
+        });
+      }
+      bar.x = cx - (obj ? 12 : 0);
+      bar.y = topY;
+      return bar;
     };
 
     // Full (re)build of object sprites. Called on structural changes (reset, edits, activation),
@@ -860,10 +902,11 @@ export default function LevelDevilGame({
 
         if (s.editorMode === 'constructor') {
           display.eventMode = 'static';
-          display.cursor = 'move';
+          display.cursor = object.locked ? 'pointer' : 'move';
           display.on('pointerdown', (e: any) => {
             const p = e.data.getLocalPosition(world);
-            dragging = { kind: 'object', id: object.id, dx: p.x - object.x, dy: p.y - object.y, display };
+            // locked objects can be selected but not dragged (prevents accidental moves)
+            if (!object.locked) dragging = { kind: 'object', id: object.id, dx: p.x - object.x, dy: p.y - object.y, display };
             onSelectEntity(object.id);
           });
 
@@ -874,6 +917,11 @@ export default function LevelDevilGame({
           outline.x = object.x;
           outline.y = object.y;
           objectsLayer.addChild(outline);
+
+          if (selected) {
+            const topY = (rect.y < 0 ? object.y + rect.y : object.y) - 16;
+            objectsLayer.addChild(makeEntityToolbar(object.x, topY, object.id, object));
+          }
         }
 
         objectSprites.set(object.id, display);
@@ -1858,6 +1906,7 @@ interface LevelDevilGameProps {
   gridSnap: number;
   onConfigChange: (config: GameConfig) => void;
   onSelectEntity: (id: string | null) => void;
+  onDeleteEntity: (id: string) => void;
   onLogEvent: (type: string, msg: string) => void;
   onRunComplete: (nextRun: ActiveRun) => void;
   onDeath: () => void;

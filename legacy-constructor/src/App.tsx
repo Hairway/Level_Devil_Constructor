@@ -391,6 +391,7 @@ export default function App() {
   const [showDriveSync, setShowDriveSync] = useState(false);
   const [snapToGrid, setSnapToGrid] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [jsonText, setJsonText] = useState('');
   const [isJsonValid, setIsJsonValid] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
@@ -567,23 +568,25 @@ export default function App() {
     addLog('RUN_REORDER', `Moved run to position ${targetIndex + 1}`);
   };
 
-  const deleteSelected = () => {
-    if (!selectedEntityId || selectedEntityId === 'playerSpawn' || selectedEntityId === 'door') return;
+  const deleteEntityById = (id: string | null) => {
+    if (!id || id === 'playerSpawn' || id === 'door') return;
     const next = cloneConfig(config);
-    const isTrigger = next.triggers.some((trigger) => trigger.id === selectedEntityId);
+    const isTrigger = next.triggers.some((trigger) => trigger.id === id);
     if (isTrigger) {
-      // Delete ONLY the selected trigger.
-      next.triggers = next.triggers.filter((trigger) => trigger.id !== selectedEntityId);
+      // Delete ONLY that trigger.
+      next.triggers = next.triggers.filter((trigger) => trigger.id !== id);
     } else {
-      // Delete only the selected object; keep triggers but retarget any that pointed at it.
-      next.objects = next.objects.filter((object) => object.id !== selectedEntityId);
+      // Delete only that object; keep triggers but retarget any that pointed at it.
+      next.objects = next.objects.filter((object) => object.id !== id);
       next.triggers = next.triggers.map((trigger) =>
-        trigger.targetId === selectedEntityId ? { ...trigger, targetId: 'door' } : trigger,
+        trigger.targetId === id ? { ...trigger, targetId: 'door' } : trigger,
       );
     }
     updateActiveConfig(next);
-    setSelectedEntityId(null);
+    if (selectedEntityId === id) setSelectedEntityId(null);
   };
+
+  const deleteSelected = () => deleteEntityById(selectedEntityId);
 
   const updateSelectedObject = (patch: Partial<LevelObject>) => {
     if (!selectedEntityId) return;
@@ -862,6 +865,7 @@ export default function App() {
             gridSnap={snapToGrid ? 10 : 0}
             onConfigChange={updateActiveConfig}
             onSelectEntity={setSelectedEntityId}
+            onDeleteEntity={deleteEntityById}
             onLogEvent={addLog}
             onRunComplete={(nextRun) => {
               setActiveRunIndex(Math.min(nextRun - 1, activeProject.runs.length - 1));
@@ -944,12 +948,12 @@ export default function App() {
                 Copy
               </button>
               <button
-                onClick={deleteActivePlayable}
+                onClick={() => setConfirmDialog({ message: `Delete the whole playable "${activeProject.name}" and all its runs? This cannot be undone.`, onConfirm: deleteActivePlayable })}
                 disabled={projects.length <= 1}
                 className="py-2 px-3 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 disabled:opacity-35 disabled:hover:bg-red-500/10 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                Delete
+                Delete Playable
               </button>
             </div>
           </section>
@@ -1018,12 +1022,12 @@ export default function App() {
                 Down
               </button>
               <button
-                onClick={deleteActiveRun}
+                onClick={() => setConfirmDialog({ message: `Delete "${activeRun.name}"? This cannot be undone.`, onConfirm: deleteActiveRun })}
                 disabled={activeProject.runs.length <= 1}
                 className="py-2 px-2 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 disabled:opacity-35 disabled:hover:bg-red-500/10 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                Delete
+                Delete Run
               </button>
             </div>
           </section>
@@ -1169,10 +1173,16 @@ export default function App() {
                   <NumberField label="Width" value={selectedObject.width} min={8} max={240} onChange={(width) => updateSelectedObject({ width })} />
                   <NumberField label="Height" value={selectedObject.height} min={8} max={180} onChange={(height) => updateSelectedObject({ height })} />
                 </div>
-                <label className="flex items-center gap-2 text-zinc-400">
-                  <input type="checkbox" checked={selectedObject.initiallyActive} onChange={(e) => updateSelectedObject({ initiallyActive: e.target.checked })} />
-                  Active on start
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-zinc-400">
+                    <input type="checkbox" checked={selectedObject.initiallyActive} onChange={(e) => updateSelectedObject({ initiallyActive: e.target.checked })} />
+                    Active on start
+                  </label>
+                  <label className="flex items-center gap-2 text-zinc-400" title="Prevents accidental dragging on the canvas">
+                    <input type="checkbox" checked={!!selectedObject.locked} onChange={(e) => updateSelectedObject({ locked: e.target.checked })} />
+                    Lock (no drag)
+                  </label>
+                </div>
 
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Collision &amp; appearance</div>
@@ -1818,6 +1828,32 @@ export default function App() {
           </section>
         </div>
       </div>
+
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setConfirmDialog(null)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-sm mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-3">
+              <Trash2 className="w-4 h-4 text-red-400" />
+              <h3 className="text-sm font-bold text-zinc-100">Confirm delete</h3>
+            </div>
+            <p className="text-xs text-zinc-400 mb-4">{confirmDialog.message}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setConfirmDialog(null)}
+                className="py-2 px-3 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }}
+                className="py-2 px-3 bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
