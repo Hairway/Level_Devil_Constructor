@@ -57,6 +57,7 @@ export interface LevelObject {
   label: string;
   initiallyActive: boolean;
   // Optional flexible-entity fields (older configs work without them).
+  locked?: boolean; // editor: prevents accidental dragging on the canvas
   color?: string; // hex tint/fill override for this obstacle
   role?: CollisionRole;
   motion?: ObjectMotion;
