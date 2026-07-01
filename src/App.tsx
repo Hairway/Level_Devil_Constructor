@@ -921,8 +921,14 @@ export default function App() {
                       <SelectField
                         label="Chase target"
                         value={selObjMotion.target}
-                        options={[{ value: 'player', label: 'Player' }, { value: 'door', label: 'Door' }]}
-                        onChange={(target) => updateSelectedMotion({ target: target as 'player' | 'door' })}
+                        options={[
+                          { value: 'player', label: 'Player' },
+                          { value: 'door', label: 'Door' },
+                          ...config.objects
+                            .filter((object) => object.id !== selectedEntityId)
+                            .map((object) => ({ value: object.id, label: object.label })),
+                        ]}
+                        onChange={(target) => updateSelectedMotion({ target })}
                       />
                     )}
                     {selObjMotion.mode === 'linear' && (

@@ -1213,8 +1213,18 @@ export default function LevelDevilGame({
           }
           objectsDirty = true;
         } else if (m.mode === 'chase') {
-          const tx = m.target === 'door' ? doorContainer.x : player.x;
-          const ty = m.target === 'door' ? doorContainer.y + DOOR_CY : player.y - PLAYER_H / 2;
+          // target can be the player, the door, or any other object by id
+          let tx = player.x;
+          let ty = player.y - PLAYER_H / 2;
+          if (m.target === 'door') {
+            tx = doorContainer.x;
+            ty = doorContainer.y + DOOR_CY;
+          } else if (m.target !== 'player') {
+            const targetRt = s.objectRuntime.get(m.target);
+            const targetObj = s.config.objects.find((o) => o.id === m.target);
+            if (targetRt) { tx = targetRt.x; ty = targetRt.y; }
+            else if (targetObj) { tx = targetObj.x; ty = targetObj.y; }
+          }
           const dx = tx - rt.x;
           const dy = ty - rt.y;
           const d = Math.hypot(dx, dy) || 1;

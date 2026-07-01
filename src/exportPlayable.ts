@@ -420,8 +420,12 @@ export const generateStandalonePlayable = (project: PlayableProject) => `<!docty
             if (m.loop) { rt.pong *= -1; rt.traveled = 0; } else { rt.pong = 0; }
           }
         } else if (m.mode === 'chase') {
-          const tx = m.target === 'door' ? door.x : player.x;
-          const ty = m.target === 'door' ? door.y + DOOR_CY : player.y - PLAYER_H / 2;
+          let tx = player.x, ty = player.y - PLAYER_H / 2;
+          if (m.target === 'door') { tx = door.x; ty = door.y + DOOR_CY; }
+          else if (m.target !== 'player') {
+            const trt = rtOf(m.target), tobj = config.objects.find(o => o.id === m.target);
+            if (trt) { tx = trt.x; ty = trt.y; } else if (tobj) { tx = tobj.x; ty = tobj.y; }
+          }
           const dx = tx - rt.x, dy = ty - rt.y, d = Math.hypot(dx, dy) || 1;
           const st = Math.min(m.speed * delta, d);
           rt.x += dx / d * st; rt.y += dy / d * st;

@@ -26,7 +26,7 @@ export type ObjectActionKind =
 
 export interface ObjectMotion {
   mode: MotionMode;
-  target: 'player' | 'door'; // chase target
+  target: string; // chase target: 'player', 'door', or an object id
   speed: number; // px per frame
   dirX: number; // -1..1, used for linear
   dirY: number; // -1..1, used for linear
