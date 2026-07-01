@@ -105,6 +105,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		if (this.#state !== 10 && this.#grounded && !this.#dead) {
 			this.#vy = -(this.#config ? this.#config.jumpForce : 11);
 			this.#grounded = false;
+			this.#playSound("sfx_jump");
 		}
 	}
 
@@ -387,7 +388,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			if (o.clickable && hasAction) {
 				g.eventMode = "static";
 				g.cursor = "pointer";
-				g.on("pointertap", () => this.#fireObjectAction(o));
+				g.on("pointertap", () => { this.#playSound("sfx_click"); this.#fireObjectAction(o); });
 			}
 			this.#objectsLayer.addChild(g);
 			this.#sprites.set(o.id, g);
@@ -488,16 +489,19 @@ export default class Game extends IMPION.ComponentEmpty {
 		}
 		if (kind === "deactivate") {
 			this.#hiddenIds.add(targetId); this.#activeIds.delete(targetId); this.#motionRunIds.delete(targetId);
+			this.#playSound("sfx_shift");
 			this.#buildObjectSprites(); this.#drawFloor(); return;
 		}
 		if (kind === "toggle") {
 			const o = this.#config.objects.find((x) => x.id === targetId);
 			if (o && this.#isActive(o)) { this.#hiddenIds.add(targetId); this.#activeIds.delete(targetId); this.#motionRunIds.delete(targetId); }
 			else { this.#hiddenIds.delete(targetId); this.#activeIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId); }
+			this.#playSound("sfx_shift");
 			this.#buildObjectSprites(); this.#drawFloor(); return;
 		}
 		// activate
 		this.#hiddenIds.delete(targetId); this.#activeIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId);
+		this.#playSound("sfx_shift");
 		this.#buildObjectSprites();
 	}
 
@@ -519,6 +523,7 @@ export default class Game extends IMPION.ComponentEmpty {
 	#die() {
 		if (this.#dead) return;
 		this.#dead = true;
+		this.#playSound("sfx_death");
 		this.#app.statisticManager.handlerEvent("CHALLENGE_FAILED");
 		// Level Devil retries the current run on death.
 		this.#app.tween.set(this, { delay: 0.5, overwrite: "none", onComplete: () => this.#resetRun() });
@@ -529,6 +534,7 @@ export default class Game extends IMPION.ComponentEmpty {
 	winGame = () => {
 		if (this.#state === 10) return;
 		this.#state = 10;
+		this.#playSound("sfx_win");
 		this.#app.platformManager.end();
 		this.#app.statisticManager.handlerEvent("CHALLENGE_SOLVED");
 		this.#app.statisticManager.handlerEvent("ENDCARD_SHOWN");
