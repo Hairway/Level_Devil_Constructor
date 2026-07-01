@@ -29,10 +29,16 @@ export default class Game extends IMPION.ComponentEmpty {
 	#floorCollapsed = false;
 
 	#activeIds = new Set();
+	#hiddenIds = new Set();
 	#firedIds = new Set();
 	#trigTimers = new Map();
 	#motionRunIds = new Set();
 	#splitIds = new Set();
+
+	// true when an object should participate in the scene (respects deactivate/toggle)
+	#isActive(o) {
+		return (this.#activeIds.has(o.id) || o.initiallyActive) && !this.#hiddenIds.has(o.id);
+	}
 	#runtime = new Map();
 	#sprites = new Map();
 
@@ -194,6 +200,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#vx = 0; this.#vy = 0; this.#grounded = true;
 		this.#door = { x: s.doorSpawnX, y: GROUND_Y, armed: false, triggered: this.#runIndex === 2, timer: 0, vx: 0, vy: 0 };
 		this.#activeIds = new Set(s.objects.filter((o) => o.initiallyActive).map((o) => o.id));
+		this.#hiddenIds = new Set();
 		this.#firedIds = new Set();
 		this.#trigTimers = new Map();
 		this.#splitIds = new Set();
@@ -315,7 +322,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#sprites.clear();
 		for (const o of this.#config.objects) {
 			if (o.type === "pit") continue; // pits are drawn by the floor
-			if (!(this.#activeIds.has(o.id) || o.initiallyActive)) continue;
+			if (!(this.#isActive(o))) continue;
 			const g = this.#makeObjectGraphic(o);
 			const rt = this.#runtime.get(o.id);
 			g.position.set(rt ? rt.x : o.x, rt ? rt.y : o.y);
@@ -337,7 +344,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			if (!g) continue;
 			const rt = this.#runtime.get(o.id);
 			if (rt) g.position.set(rt.x, rt.y);
-			const active = this.#activeIds.has(o.id) || o.initiallyActive;
+			const active = this.#isActive(o);
 			const appeared = rt ? rt.since >= (o.appearDelay || 0) : true;
 			g.visible = active && appeared;
 		}
@@ -403,8 +410,18 @@ export default class Game extends IMPION.ComponentEmpty {
 			}
 			return;
 		}
+		if (kind === "deactivate") {
+			this.#hiddenIds.add(targetId); this.#activeIds.delete(targetId); this.#motionRunIds.delete(targetId);
+			this.#buildObjectSprites(); this.#drawFloor(); return;
+		}
+		if (kind === "toggle") {
+			const o = this.#config.objects.find((x) => x.id === targetId);
+			if (o && this.#isActive(o)) { this.#hiddenIds.add(targetId); this.#activeIds.delete(targetId); this.#motionRunIds.delete(targetId); }
+			else { this.#hiddenIds.delete(targetId); this.#activeIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId); }
+			this.#buildObjectSprites(); this.#drawFloor(); return;
+		}
 		// activate
-		this.#activeIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId);
+		this.#hiddenIds.delete(targetId); this.#activeIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId);
 		this.#buildObjectSprites();
 	}
 
@@ -506,7 +523,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		let landed = false;
 		for (const o of s.objects) {
 			const role = roleOf(o);
-			if ((role !== "solid" && role !== "spring") || !(this.#activeIds.has(o.id) || o.initiallyActive)) continue;
+			if ((role !== "solid" && role !== "spring") || !(this.#isActive(o))) continue;
 			const r = this.#objectWorldRect(o);
 			const prevFoot = py - this.#vy * dt;
 			if (this.#vy >= 0 && px > r.x && px < r.x + r.w && prevFoot <= r.y + 2 && py >= r.y) {
@@ -526,7 +543,7 @@ export default class Game extends IMPION.ComponentEmpty {
 
 		let dirty = false;
 		for (const o of s.objects) {
-			if (!(this.#activeIds.has(o.id) || o.initiallyActive)) continue;
+			if (!(this.#isActive(o))) continue;
 			const rt = this.#runtime.get(o.id);
 			if (!rt) continue;
 			const before = rt.since;
@@ -606,7 +623,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		//- collisions
 
 		for (const o of s.objects) {
-			if (!(this.#activeIds.has(o.id) || o.initiallyActive)) continue;
+			if (!(this.#isActive(o))) continue;
 			const rt = this.#runtime.get(o.id);
 			if ((o.appearDelay || 0) > 0 && rt && rt.since < o.appearDelay) continue;
 			const wr = this.#objectWorldRect(o);

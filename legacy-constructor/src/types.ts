@@ -7,7 +7,7 @@ export type TrapObjectType =
   | 'laser'
   | 'platform'
   | 'button';
-export type TriggerAction = 'activate' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
+export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
 
 // How an object behaves over time once it is active.
 export type MotionMode = 'static' | 'linear' | 'chase' | 'fall';
@@ -17,6 +17,8 @@ export type CollisionRole = 'hazard' | 'solid' | 'pit' | 'decor' | 'spring';
 export type ObjectActionKind =
   | 'none'
   | 'activate'
+  | 'deactivate'
+  | 'toggle'
   | 'openPit'
   | 'splitFloor'
   | 'startDoorChase'
