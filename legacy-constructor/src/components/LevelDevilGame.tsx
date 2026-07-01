@@ -1097,6 +1097,16 @@ export default function LevelDevilGame({
           ensureRuntime(targetId);
           onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} opened ${targetLabel}`);
           break;
+        case 'teleport': {
+          // move the player to the target object's position (a teleport pad), or the door
+          const to = s.config.objects.find((o) => o.id === targetId);
+          const rt = to ? s.objectRuntime.get(targetId) : null;
+          player.x = to ? (rt ? rt.x : to.x) : s.config.doorSpawnX;
+          player.y = to ? (rt ? rt.y : to.y) : GROUND_Y;
+          s.playerVelY = 0;
+          onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} teleported player to ${targetLabel}`);
+          break;
+        }
         case 'deactivate':
           s.hiddenObjectIds.add(targetId);
           s.activeObjectIds.delete(targetId);
