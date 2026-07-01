@@ -46,6 +46,9 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
     #right{left:36.1%;top:75.8%;width:21.25%;clip-path:polygon(0 20%,90% 20%,100% 50%,90% 80%,0 80%)}
     #jump{left:71.5%;top:75.8%;width:21.25%;clip-path:polygon(0 70%,50% 10%,100% 70%,100% 90%,0 90%)}
     #skip{display:none;left:41%;top:31%;width:18%;height:6%;animation:bounce .8s infinite}
+    #tutorial{display:none;position:absolute;z-index:8;transform:translate(-50%,-50%);pointer-events:none;animation:bounce 1s infinite;text-align:center}
+    #tutorial b{display:block;background:rgba(255,193,100,.92);color:#231708;padding:6px 8px;font-family:monospace;font-size:12px;white-space:nowrap}
+    #tutorial i{display:block;font-style:normal;font-family:monospace;font-size:24px;color:#231708;text-shadow:0 2px 0 rgba(255,255,255,.35)}
     #cta{display:none;position:absolute;inset:0;z-index:10;background:rgba(0,0,0,.92);color:white;align-items:center;justify-content:center;flex-direction:column;text-align:center;font-family:monospace;font-weight:900;padding:24px}
     #cta button{position:static;width:240px;height:52px;background:#10b981;color:white;box-shadow:inset 0 -6px 0 #047857}
     @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
@@ -74,6 +77,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
       <button id="right" class="ctrl" data-key="ArrowRight">Right</button>
       <button id="jump" class="ctrl" data-key="Space">Jump</button>
       <button id="skip">SKIP</button>
+      <div id="tutorial"><i>TAP</i><b></b></div>
       <div id="cta"><h1>YOU DIED... AGAIN?</h1><p>LEVEL DEVIL IS BRUTAL. CAN YOU OUTSMART IT?</p><button>PLAY NOW</button></div>
     </div>
   </div>
@@ -116,6 +120,8 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
     const dots = document.getElementById('dots');
     const skip = document.getElementById('skip');
     const cta = document.getElementById('cta');
+    const tutorial = document.getElementById('tutorial');
+    let tutorialTimers = [];
 
     function openStore() {
       try { if (window.mraid && window.mraid.open) return window.mraid.open(STORE_URL); } catch (e) {}
@@ -145,12 +151,42 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
       doorTimer = 0; doorVx = 0; doorVy = 0; dead = false; skipActive = false; skipClicked = false; floorCollapsed = false;
       skip.style.display = 'none';
       cta.style.display = 'none';
+      tutorialTimers.forEach(clearTimeout);
+      tutorialTimers = [];
+      tutorial.style.display = 'none';
       title.textContent = runIndex === 2 ? 'TRY NEW DOOR' : 'REACH THE DOOR';
       dots.innerHTML = Array.from({ length: 5 }, (_, i) => '<i class="' + (i <= runIndex ? 'filled' : '') + '"></i>').join('');
+      setupTutorial();
       spriteCache.forEach(s => s.destroy());
       spriteCache.clear();
       spriteLayer.removeChildren();
       draw();
+    }
+
+    function tutorialPoint(target) {
+      const portrait = matchMedia('(orientation:portrait)').matches;
+      const map = portrait
+        ? { leftControl:[17,76], rightControl:[47,76], jumpControl:[82,76], install:[76,90], sound:[12,90] }
+        : { leftControl:[11,84], rightControl:[27,84], jumpControl:[89,84], install:[86,7], sound:[7,7] };
+      if (map[target]) return map[target];
+      const level = portrait ? [2.8,39.0625,94.4,21.875] : [23.4375,30.56,53.125,38.89];
+      const obj = config.objects.find(o => o.id === target);
+      const x = target === 'door' ? config.doorSpawnX : target === 'player' ? config.playerSpawnX : (obj ? obj.x : config.playerSpawnX);
+      const y = target === 'door' || target === 'player' ? 280 : (obj ? obj.y : 240);
+      return [level[0] + x / 800 * level[2], level[1] + y / 328 * level[3]];
+    }
+
+    function setupTutorial() {
+      const t = config.tutorial;
+      if (!t || !t.enabled) return;
+      const p = tutorialPoint(t.targetId || 'rightControl');
+      tutorial.style.left = p[0] + '%';
+      tutorial.style.top = p[1] + '%';
+      tutorial.querySelector('b').textContent = t.text || 'Tap';
+      tutorialTimers.push(setTimeout(() => {
+        tutorial.style.display = 'block';
+        if (t.duration > 0) tutorialTimers.push(setTimeout(() => tutorial.style.display = 'none', t.duration * 1000));
+      }, Math.max(0, t.startDelay || 0) * 1000));
     }
 
     function ensureRt(id) {
@@ -324,6 +360,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
     }
 
     function markInput() {
+      if ((config.tutorial && config.tutorial.endOn === 'anyInput') || !config.tutorial) tutorial.style.display = 'none';
       if (runIndex === 2 && !dead) {
         cta.style.display = 'flex';
         dead = true;

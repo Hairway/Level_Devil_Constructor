@@ -95,7 +95,7 @@ export default function LevelDevilGame({
   const [isSkipVisible, setIsSkipVisible] = useState(false);
   const [isCtaVisible, setIsCtaVisible] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
-  const [showHand, setShowHand] = useState(true);
+  const [showHand, setShowHand] = useState(false);
 
   const stateRef = useRef({
     config: cloneConfig(config),
@@ -201,6 +201,35 @@ export default function LevelDevilGame({
     return () => clearTimeout(t);
   }, [activeRun, onLogEvent]);
 
+  useEffect(() => {
+    const tutorial = config.tutorial;
+    if (editorMode !== 'play' || !tutorial?.enabled) {
+      setShowHand(false);
+      return;
+    }
+    let hideTimer = 0;
+    let repeatTimer = 0;
+    const startTimer = window.setTimeout(() => {
+      setShowHand(true);
+      if (tutorial.duration > 0) {
+        hideTimer = window.setTimeout(() => setShowHand(false), tutorial.duration * 1000);
+      }
+      if (tutorial.repeatEvery > 0) {
+        repeatTimer = window.setInterval(() => {
+          setShowHand(true);
+          if (tutorial.duration > 0) {
+            window.setTimeout(() => setShowHand(false), Math.min(tutorial.duration, tutorial.repeatEvery) * 1000);
+          }
+        }, tutorial.repeatEvery * 1000);
+      }
+    }, Math.max(0, tutorial.startDelay) * 1000);
+    return () => {
+      window.clearTimeout(startTimer);
+      window.clearTimeout(hideTimer);
+      window.clearInterval(repeatTimer);
+    };
+  }, [activeRun, config.tutorial, editorMode]);
+
   const activeTitle = activeRun === 3 ? 'TRY NEW DOOR' : 'REACH THE DOOR';
 
   const LevelIndicators = () => (
@@ -240,6 +269,7 @@ export default function LevelDevilGame({
   const SoundButton = ({ style }: { style?: CSSProperties }) => (
     <button
       onClick={() => {
+        finishTutorialTarget('sound');
         const next = !isMuted;
         setIsMuted(next);
         onLogEvent('SOUND_TOGGLE', `[Sound] Mute toggled: ${next ? 'MUTED' : 'UNMUTED'}`);
@@ -281,7 +311,10 @@ export default function LevelDevilGame({
 
   const InstallButton = ({ style }: { style?: CSSProperties }) => (
     <button
-      onClick={() => goToStore('install_now')}
+      onClick={() => {
+        finishTutorialTarget('install');
+        goToStore('install_now');
+      }}
       style={{
         height: 42,
         padding: '0 20px',
@@ -314,8 +347,12 @@ export default function LevelDevilGame({
   };
 
   const firstMove = () => {
-    if (showHand) setShowHand(false);
+    if (showHand && (stateRef.current.config.tutorial?.endOn || 'anyInput') === 'anyInput') setShowHand(false);
     stateRef.current.playerMoved = true;
+  };
+  const finishTutorialTarget = (targetId: string) => {
+    const tutorial = stateRef.current.config.tutorial;
+    if (tutorial?.endOn === 'targetTap' && tutorial.targetId === targetId) setShowHand(false);
   };
 
   useEffect(() => {
@@ -1701,19 +1738,22 @@ export default function LevelDevilGame({
     filled: string;
     label: string;
     width: number | string;
-  }) => (
+  }) => {
+    const targetId = keyCode === 'ArrowLeft' ? 'leftControl' : keyCode === 'ArrowRight' ? 'rightControl' : 'jumpControl';
+    return (
     <img
       src={hollow}
       alt={label}
       draggable={false}
-      onMouseDown={(e) => { press(keyCode); (e.currentTarget as HTMLImageElement).src = filled; }}
+      onMouseDown={(e) => { finishTutorialTarget(targetId); press(keyCode); (e.currentTarget as HTMLImageElement).src = filled; }}
       onMouseUp={(e) => { release(keyCode); (e.currentTarget as HTMLImageElement).src = hollow; }}
       onMouseLeave={(e) => { release(keyCode); (e.currentTarget as HTMLImageElement).src = hollow; }}
-      onTouchStart={(e) => { e.preventDefault(); press(keyCode); (e.currentTarget as HTMLImageElement).src = filled; }}
+      onTouchStart={(e) => { e.preventDefault(); finishTutorialTarget(targetId); press(keyCode); (e.currentTarget as HTMLImageElement).src = filled; }}
       onTouchEnd={(e) => { e.preventDefault(); release(keyCode); (e.currentTarget as HTMLImageElement).src = hollow; }}
       style={{ width, height: 'auto', imageRendering: 'pixelated', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none' }}
     />
-  );
+    );
+  };
 
   const INK = '#231708';
   const overlayCenter: CSSProperties = {
@@ -1739,6 +1779,29 @@ export default function LevelDevilGame({
     overflow: 'hidden',
     backgroundColor: frameBand,
   };
+  const tutorialConfig = config.tutorial;
+  const tutorialPosition = (() => {
+    const target = tutorialConfig?.targetId || 'rightControl';
+    const controls = {
+      leftControl: { left: isPortrait ? 18 : 11, top: isPortrait ? 75 : 83 },
+      rightControl: { left: isPortrait ? 47 : 27, top: isPortrait ? 75 : 83 },
+      jumpControl: { left: isPortrait ? 82 : 89, top: isPortrait ? 75 : 83 },
+      install: { left: isPortrait ? 75 : 86, top: isPortrait ? 89 : 6 },
+      sound: { left: isPortrait ? 12 : 7, top: isPortrait ? 89 : 6 },
+    } as Record<string, { left: number; top: number }>;
+    if (controls[target]) return controls[target];
+    const levelLeft = isPortrait ? 2.8 : 23.4375;
+    const levelTop = isPortrait ? 39.0625 : 30.56;
+    const levelW = isPortrait ? 94.4 : 53.125;
+    const levelH = isPortrait ? 21.875 : 38.89;
+    const object = config.objects.find((item) => item.id === target);
+    const x = target === 'door' ? config.doorSpawnX : target === 'player' ? config.playerSpawnX : object?.x ?? config.playerSpawnX;
+    const y = target === 'door' || target === 'player' ? 280 : object?.y ?? 240;
+    return {
+      left: levelLeft + (x / 800) * levelW,
+      top: levelTop + (y / 328) * levelH,
+    };
+  })();
 
   return (
     <div style={{ position: 'relative', userSelect: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
@@ -1790,9 +1853,31 @@ export default function LevelDevilGame({
           <ControlButton keyCode="Space" hollow={A.btnJumpHollow} filled={A.btnJumpFilled} label="Jump" width="100%" />
         </div>
 
-        {showHand && !showSplash && editorMode === 'play' && (
-          <div style={{ position: 'absolute', top: '63%', left: '28%', zIndex: 25, fontSize: 28, pointerEvents: 'none', animation: 'ld-bounce 1s infinite', filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.3))' }}>
-            TAP
+        {showHand && !showSplash && editorMode === 'play' && tutorialConfig?.enabled && (
+          <div
+            style={{
+              position: 'absolute',
+              top: `${tutorialPosition.top}%`,
+              left: `${tutorialPosition.left}%`,
+              zIndex: 25,
+              pointerEvents: 'none',
+              animation: 'ld-bounce 1s infinite',
+              filter: 'drop-shadow(0 4px 4px rgba(0,0,0,0.35))',
+              transform: 'translate(-50%, -50%)',
+              textAlign: 'center',
+            }}
+          >
+            <img
+              src={tutorialConfig.handUrl || A.tutorialHand}
+              alt=""
+              draggable={false}
+              style={{ ...pix, width: 54, height: 54, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }}
+            />
+            {tutorialConfig.text && (
+              <div style={{ fontFamily: '"Press Start 2P", monospace', fontSize: 9, color: '#231708', background: 'rgba(255,193,100,0.9)', padding: '5px 7px', whiteSpace: 'nowrap' }}>
+                {tutorialConfig.text}
+              </div>
+            )}
           </div>
         )}
 

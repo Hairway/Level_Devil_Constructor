@@ -115,6 +115,30 @@ export interface GameConfig {
   groundColor?: string; // floor/ground band color (hex)
   groundOffset?: number; // visual px to nudge hero + objects down toward the ground (0 = none)
   triggerLayers?: TriggerLayer[]; // editor-only: named layers to color/hide groups of triggers
+  tutorial?: TutorialConfig;
+  assetKit?: AssetKitConfig;
+}
+
+export interface TutorialConfig {
+  enabled: boolean;
+  targetId: string; // leftControl/rightControl/jumpControl/install/sound/player/door/object id
+  text: string;
+  startDelay: number;
+  repeatEvery: number;
+  duration: number;
+  endOn: 'anyInput' | 'targetTap' | 'timer';
+  handUrl?: string;
+}
+
+export interface AssetKitConfig {
+  name: string;
+  tileTexture?: string;
+  tileColor?: string;
+  trailTexture?: string;
+  trailColor?: string;
+  backgroundImage?: string;
+  musicUrl?: string;
+  tapSoundUrl?: string;
 }
 
 export interface TriggerLayer {
