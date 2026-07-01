@@ -61,12 +61,25 @@
 				},
 		
 				//- CUSTOM PARAMS
-				
+
 				buttonWinGame		: { value: "winGame", 	type: "button", label: "Win game", 	description: "Call function"},
 				buttonFailGame		: { value: "failGame", 	type: "button", label: "Fail game", description: "Call function"},
-				
+
 				separator_0			: { type: "separator" },
-				
+
+				//- LEVEL DEVIL
+
+				playerSpeed			: { value: 5,		type: "number", default: 5,		min: 2,		max: 12,	step: 0.5,	description: "Hero run speed" },
+				jumpForce			: { value: 16,		type: "number", default: 16,	min: 8,		max: 26,	step: 0.5,	description: "Jump impulse" },
+				gravity				: { value: 0.9,		type: "number", default: 0.9,	min: 0.3,	max: 2.0,	step: 0.1,	description: "Gravity" },
+				playerSpawnX		: { value: -270,	type: "number", default: -270,	min: -340,	max: 0,		step: 5,	description: "Hero start X" },
+				doorX				: { value: 290,		type: "number", default: 290,	min: 0,		max: 340,	step: 5,	description: "Door X" },
+				spikes				: { value: [-70, 70], type: "array", default: [-70, 70],				description: "Spike X positions" },
+				bgColor				: { value: "#c77b00", type: "string", default: "#c77b00",			description: "Background color (hex)" },
+				groundColor			: { value: "#e2a33c", type: "string", default: "#e2a33c",			description: "Ground color (hex)" },
+
+				separator_1			: { type: "separator" },
+
 				/*
 				speed: {
 					value		: 1,

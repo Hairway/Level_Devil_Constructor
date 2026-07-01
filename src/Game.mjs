@@ -1,253 +1,186 @@
 import * as IMPION from "#impion";
+import { LEVEL } from "./LevelConfig.mjs";
+
+// Level Devil platformer runtime on the IMPION base.
+// Physics/collision port of the constructor engine, adapted to PixiJS v8 + the centered design space.
 
 export default class Game extends IMPION.ComponentEmpty {
-    #app;
+	#app;
 
 	#numClicks = 0;
-	#state = 0;
-	#mouse = {};
-	#mouseAim = {x:0, y:0};
-	#mouseCurrent;
-	#isStageDown = false;
-
-	#stageWidth = 0;	
+	#state = 0;			// 0 = idle, 1 = playing, 10 = ended
+	#stageWidth = 0;
 	#stageHeight = 0;
 
-	#soundsSfxTimer = {
-		step : 0		
-	};
-	
-    constructor({app}) {
-        super();
-		
-        this.#app = app;
+	#keys = {};
+
+	// hero physics (position.y is the feet line)
+	#vx = 0;
+	#vy = 0;
+	#grounded = false;
+
+	// level params (read in initGame)
+	#playerSpeed = 5;
+	#jumpForce = 15;
+	#gravity = 0.9;
+	#spawnX = -270;
+	#doorX = 290;
+	#spikes = [-70, 70];
+
+	constructor({ app }) {
+		super();
+		this.#app = app;
 		this.components = this.#app.components;
 		this.materials = this.#app.materials;
 		this.lights = this.#app.lights;
 	}
-	
-	init(){	
-	
-        //- debug
-		
-	//	new IMPION.Debugger2d({
-	//		app					: this.#app,
-	//		ruler				: true,
-	//		console				: false,
-	//		spritesHelper		: false,
-	//		fpsHelper			: false,
-	//		gridHelper			: false,
-	//		axesHelper			: false,
-	//		gui					: new IMPION.CreateDebugGUI({app: this.#app, gameComponent: this}),
-	//		components			: [
-	//			this.#app.physics2d
-	//		]	
-	//	});
-	
-        //- sounds settings
-		
-	//	this.#app.soundManager.loop("bg_0");
-	//	this.#app.soundManager.setMusic("bg_0");
-	//	this.#app.soundManager.volume("bg_0", 0.2);
-    		
-		//-
-		
-		//this.#app.tween.set(this, {delay:0.1, overwrite: "none", onComplete:this.failGame});
-		//this.#app.tween.set(this, {delay:0.1, overwrite: "none", onComplete:this.winGame});
-    }
 
-    //------------------------------------------------------------------------
-
-	handlerTap = (e) => {
-		this.#numClicks++;
-		if(this.#app.params.modeClicks.value != 0){		
-			if(this.#numClicks >= this.#app.params.modeClicks.value){			
-				this.components["FullscreenCTA"].visible = true;
-			}	
-		}
-		
-		this.#app.platformManager.handlerTap( this.#numClicks );
-		
-		//-
-		
-		this.#app.focusedManager.on(true);
-	
-		//-
-		
-		if(this.#state == 0){
-			this.#state = 1;
-			
-			this.#app.statisticManager.handlerEvent("CHALLENGE_STARTED");
-			this.#app.soundManager.on( this.#numClicks );
-			  
-			//this.#app.soundManager.play("bg_0");
-			//this.#app.soundManager.fadeIn("bg_0", 1);
-			
-			this.components["Cursor"].hide(0.1).stopAnimation();		
-			this.components["Task"].hide(0.1).stopAnimation();			
-		}		
+	init() {
+		window.addEventListener("keydown", this.#onKeyDown);
+		window.addEventListener("keyup", this.#onKeyUp);
 	}
 
-    //------------------------------------------------------------------------
+	#onKeyDown = (e) => {
+		this.#keys[e.code] = true;
+		if (["Space", "ArrowUp", "KeyW"].includes(e.code)) this.#jump();
+		if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(e.code)) this.#startPlaying();
+	};
+	#onKeyUp = (e) => { delete this.#keys[e.code]; };
 
+	//------------------------------------------------------------------------
+
+	#startPlaying() {
+		if (this.#state !== 0) return;
+		this.#state = 1;
+		this.#app.statisticManager.handlerEvent("CHALLENGE_STARTED");
+		this.#app.soundManager.on(this.#numClicks);
+	}
+
+	#jump() {
+		this.#startPlaying();
+		if (this.#state === 1 && this.#grounded) {
+			this.#vy = -this.#jumpForce;
+			this.#grounded = false;
+		}
+	}
+
+	handlerTap = () => {
+		this.#numClicks++;
+		if (this.#app.params.modeClicks.value != 0 && this.#numClicks >= this.#app.params.modeClicks.value) {
+			this.components["FullscreenCTA"].visible = true;
+		}
+		this.#app.platformManager.handlerTap(this.#numClicks);
+		this.#app.focusedManager.on(true);
+	};
+
+	// pointer down on stage = tap to jump (mobile)
 	stageDown = (e) => {
 		this.handlerTap(e);
-		
-		if(this.#state == 1){
-			this.#isStageDown = true;
-		
-			//-
-			
-			if(!this.#mouse[e.data.pointerId]){
-				this.#mouse[e.data.pointerId] = {};
-			}
-			
-			this.#mouseCurrent = this.#mouse[e.data.pointerId];
-			
-			this.#mouseCurrent.type = "";
-			this.#mouseCurrent.isDown = true;
-			this.#mouseCurrent.x = 0;
-			this.#mouseCurrent.y = 0;
-			this.#mouseCurrent.downX = 0;
-			this.#mouseCurrent.downY = 0;
-				
-			this.#app.view2d.scene.toLocal( e.global, null, this.#mouseCurrent);	
-			
-			this.#mouseCurrent.downX = this.#mouseCurrent.x;
-			this.#mouseCurrent.downY = this.#mouseCurrent.y;
-			
-			//this.#mouseCurrent.x = +this.#mouseCurrent.x * this.#app.view2d.scene.scale.x/(0.5 * this.#app.view2d.width);
-			//this.#mouseCurrent.y = -this.#mouseCurrent.y * this.#app.view2d.scene.scale.x/(0.5 * this.#app.view2d.height);
-			
-			//-
-			
-		}
-    }
+		this.#jump();
+	};
+	stageMove = () => {};
+	stageUp = () => {};
 
-    stageMove = (e) => {
-		this.#mouseCurrent = this.#mouse[e.data.pointerId];
-		
-		if(this.#isStageDown && this.#state == 1 && this.#mouseCurrent && this.#mouseCurrent.isDown){
-			
-			this.#app.view2d.scene.toLocal( e.global, null, this.#mouseCurrent);	
-			
-		}
-    }
+	//------------------------------------------------------------------------
 
-    stageUp = (e) => {		
-		this.#mouseCurrent = this.#mouse[e.data.pointerId];
-		
-		if(this.#isStageDown && this.#state == 1 && this.#mouseCurrent){
-			this.#mouseCurrent.isDown = false;
-		}
-		
-		this.#isStageDown = false;		
-    }
+	initGame = () => {
+		const p = this.#app.params;
+		if (p.playerSpeed) this.#playerSpeed = p.playerSpeed.value;
+		if (p.jumpForce) this.#jumpForce = p.jumpForce.value;
+		if (p.gravity) this.#gravity = p.gravity.value;
+		if (p.playerSpawnX) this.#spawnX = p.playerSpawnX.value;
+		if (p.doorX) this.#doorX = p.doorX.value;
+		if (p.spikes && Array.isArray(p.spikes.value)) this.#spikes = p.spikes.value;
 
-    //------------------------------------------------------------------------
+		this.#resetHero();
+	};
 
-    initGame = () => {	
-		//this.#app.tween.globalTimeline.timeScale(0.2);
-		//this.#app.timeScale = 1;
-		
-		//this.#app.statisticManager.handlerEvent("CHALLENGE_RETRY");		// Пользователь повторно пытается пройти проверку, которая оказалась неудачной
-		//this.#app.statisticManager.handlerEvent("CHALLENGE_PASS_25");		// Пользователь достигает 25% выполнения задания.
-		//this.#app.statisticManager.handlerEvent("CHALLENGE_PASS_50");		// Пользователь достигает 50% выполнения задания.
-		//this.#app.statisticManager.handlerEvent("CHALLENGE_PASS_75");		// Пользователь выполнил задание на 75%.
-		
+	#resetHero() {
+		const hero = this.components["Hero"];
+		hero.position.set(this.#spawnX, LEVEL.groundY);
+		this.#vx = 0;
+		this.#vy = 0;
+		this.#grounded = true;
 	}
 
-    //------------------------------------------------------------------------
+	reloadParams() {}
 
-	reloadParams(){
-		//this.#app.params
-		
-	}
+	//------------------------------------------------------------------------
 
-    //------------------------------------------------------------------------
+	failGame = () => {
+		// Level Devil retries on death rather than ending — just respawn.
+		this.#resetHero();
+	};
 
-    failGame = (e) => {
-		if(this.#state != 10){
-			this.#state = 10;
+	winGame = () => {
+		if (this.#state === 10) return;
+		this.#state = 10;
 
-			//-
-			
-			this.#app.platformManager.end();
-			this.#app.statisticManager.handlerEvent("CHALLENGE_FAILED");
-			this.#app.statisticManager.handlerEvent("ENDCARD_SHOWN");
-			
-			//-
-			
-			
-			if(this.#app.params.fullscreenCta.value){
-				this.#app.tween.set(this.components["FullscreenCTA"],				{delay:2.0, overwrite: "none", visible:true});
+		this.#app.platformManager.end();
+		this.#app.statisticManager.handlerEvent("CHALLENGE_SOLVED");
+		this.#app.statisticManager.handlerEvent("ENDCARD_SHOWN");
+
+		this.components["ButtonCTA"].visible = true;
+		if (this.#app.params.fullscreenCta.value) {
+			this.#app.tween.set(this.components["FullscreenCTA"], { delay: 1.5, overwrite: "none", visible: true });
+		}
+	};
+
+	//------------------------------------------------------------------------
+
+	enterframe = (timeDelta) => {
+		if (this.#state === 10) return;
+		const dt = timeDelta || 1;
+		const hero = this.components["Hero"];
+		if (!hero) return;
+
+		//- horizontal input
+
+		this.#vx = 0;
+		if (this.#keys["ArrowLeft"] || this.#keys["KeyA"]) this.#vx = -this.#playerSpeed;
+		if (this.#keys["ArrowRight"] || this.#keys["KeyD"]) this.#vx = this.#playerSpeed;
+
+		//- integrate
+
+		this.#vy += this.#gravity * dt;
+		let x = hero.position.x + this.#vx * dt;
+		let y = hero.position.y + this.#vy * dt;
+
+		const minX = -LEVEL.corridorHalf + LEVEL.heroW / 2;
+		const maxX = LEVEL.corridorHalf - LEVEL.heroW / 2;
+		x = Math.max(minX, Math.min(maxX, x));
+
+		//- ground collision
+
+		if (y >= LEVEL.groundY) {
+			y = LEVEL.groundY;
+			this.#vy = 0;
+			this.#grounded = true;
+		} else {
+			this.#grounded = false;
+		}
+
+		hero.position.set(x, y);
+
+		//- spike collision (only when low enough that feet reach the spikes)
+
+		for (const sx of this.#spikes) {
+			if (Math.abs(x - sx) < LEVEL.heroW / 2 + LEVEL.spikeW / 2 - 6 && y > LEVEL.groundY - LEVEL.spikeH + 6) {
+				this.#app.statisticManager.handlerEvent("CHALLENGE_FAILED");
+				this.failGame();
+				return;
 			}
 		}
-    }
 
-    winGame = (e) => {
-		if(this.#state != 10){
-			this.#state = 10;
-			
-			//-
-			
-			this.#app.platformManager.end();
-			this.#app.statisticManager.handlerEvent("CHALLENGE_SOLVED");
-			this.#app.statisticManager.handlerEvent("ENDCARD_SHOWN");
-			
-			//-
-			
-			//this.#app.soundManager.play("win");
-			
-			//-
-			
-			//this.#app.tween.killTweensOf( this );
-			
-			//-
-				
-			this.components["Task"].hide(0.1).stopAnimation();
-			this.components["Logo"].hide(0.1);
-			this.components["Cursor"].hide(0.1);
-			
-			//this.components["FullscreenOverlay"].show(0.1, 0.4);
-			 
-			this.components["ButtonCTA"].show(0.4, 0.4, "scale").playAnimation("bounce");
-			 
-			//-
-			
-			this.components["VfxConfetti"].exude({quantity : 30, spawn : {type : "rect", x : -this.#stageWidth*0.5, y : +this.#stageHeight*0.5, dx : 0, dy : 0}});			
-			this.components["VfxConfetti"].exude({quantity : 30, spawn : {type : "rect", x : +this.#stageWidth*0.5, y : +this.#stageHeight*0.5, dx : 0, dy : 0}});
+		//- reach the door → win
 
-			//-
-						
-			if(this.#app.params.fullscreenCta.value){
-				this.#app.tween.set(this.components["FullscreenCTA"],				{delay:2.0, overwrite: "none", visible:true});
-			}
-		   
+		if (x >= this.#doorX - LEVEL.doorW / 2 - LEVEL.heroW / 2) {
+			this.winGame();
 		}
-    }
+	};
 
-    //------------------------------------------------------------------------
-
-    enterframe = ( timeDelta )=>{		
-		
-		//- Cursor
-		
-		//if(this.components["Cursor"].visible){
-		//	this.components["Cursor"].bgObject_1.rotation = 0.5*this.components["Cursor"].animationContainer.rotation;
-		//}
-		
-		//- Sounds
-		
-		for(let i in this.#soundsSfxTimer){
-			if(this.#soundsSfxTimer[i] > 0){this.#soundsSfxTimer[i]--;}
-		}
-    }
-
-    resize = (width, height)=>{
+	resize = (width, height) => {
 		this.#stageWidth = width;
 		this.#stageHeight = height;
-
-    }
-
+	};
 }
