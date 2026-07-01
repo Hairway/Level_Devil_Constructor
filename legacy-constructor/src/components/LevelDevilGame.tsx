@@ -26,7 +26,7 @@ const COL_CONNECTOR = 0xfbbf24;
 type DeathCause = 'SAW' | 'SPIKE' | 'PIT' | 'CRUSH' | 'LASER' | 'REDIRECT';
 // Per-object runtime: live position, fall velocity, distance travelled (linear), ping-pong sign,
 // seconds since the object became active (drives motion delay + appearDelay), and floor-split progress.
-type ObjectRuntime = { x: number; y: number; vy: number; traveled: number; pong: number; since: number; split: number; moving?: boolean; spinAngle?: number; lastX?: number; lastY?: number; orbit?: number };
+type ObjectRuntime = { x: number; y: number; vy: number; traveled: number; pong: number; since: number; split: number; moving?: boolean; spinAngle?: number; lastX?: number; lastY?: number; orbit?: number; wpIndex?: number; wpDir?: number };
 
 const TRAP_TOOLS = new Set<TrapObjectType>(objectCatalog.map((item) => item.type));
 const isTrapTool = (tool: EditorTool): tool is TrapObjectType => TRAP_TOOLS.has(tool as TrapObjectType);
@@ -699,6 +699,22 @@ export default function LevelDevilGame({
         if (!action || action.kind === 'none') return;
         const selected = s.selectedEntityId === object.id || s.selectedEntityId === action.targetId;
         drawConnector('object', object.id, object.x, object.y - object.height / 2, action.targetId, action.kind, selected);
+      });
+
+      // path-motion objects: draw the waypoint route (placed point -> wp1 -> wp2 ...)
+      s.config.objects.forEach((object) => {
+        const m = objectMotion(object);
+        if (m.mode !== 'path' || !m.waypoints || m.waypoints.length === 0) return;
+        const pts = [{ x: object.x, y: object.y }, ...m.waypoints];
+        connectorsLayer.lineStyle(2, 0x22d3ee, 0.8);
+        connectorsLayer.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) connectorsLayer.lineTo(pts[i].x, pts[i].y);
+        pts.forEach((p, i) => {
+          connectorsLayer.lineStyle(0);
+          connectorsLayer.beginFill(i === 0 ? 0xffffff : 0x22d3ee, 0.95);
+          connectorsLayer.drawCircle(p.x, p.y, i === 0 ? 3 : 4);
+          connectorsLayer.endFill();
+        });
       });
     };
 
@@ -1472,6 +1488,25 @@ export default function LevelDevilGame({
           const swing = Math.sin(rt.orbit) * 1.2;
           rt.x = object.x + Math.sin(swing) * R;
           rt.y = (object.y - R) + Math.cos(swing) * R;
+        } else if (m.mode === 'path') {
+          // travel through waypoints: placed point -> wp0 -> wp1 ...; loop = ping-pong
+          const wps = m.waypoints || [];
+          if (wps.length) {
+            const path = [{ x: object.x, y: object.y }, ...wps];
+            let idx = rt.wpIndex ?? 1; let wdir = rt.wpDir ?? 1;
+            if (idx < 0 || idx >= path.length) { idx = 1; wdir = 1; }
+            const tgt = path[idx];
+            const dx = tgt.x - rt.x, dy = tgt.y - rt.y, d = Math.hypot(dx, dy) || 1;
+            const step = m.speed * delta;
+            if (step >= d) {
+              rt.x = tgt.x; rt.y = tgt.y;
+              let ni = idx + wdir;
+              if (ni >= path.length) { if (m.loop) { wdir = -1; ni = path.length - 2; } else { ni = path.length - 1; wdir = 0; } }
+              else if (ni < 0) { wdir = 1; ni = 1; }
+              rt.wpIndex = ni; rt.wpDir = wdir;
+            } else { rt.x += (dx / d) * step; rt.y += (dy / d) * step; }
+            objectsDirty = true;
+          }
         }
         rt.x = clamp(rt.x, 0, VIEW_W);
         rt.y = clamp(rt.y, BAND_TOP, GROUND_Y + 40);

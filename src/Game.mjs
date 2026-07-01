@@ -653,6 +653,24 @@ export default class Game extends IMPION.ComponentEmpty {
 				const swing = Math.sin(rt.orbit) * 1.2; // ~±70°
 				rt.x = o.x + Math.sin(swing) * R;
 				rt.y = (o.y - R) + Math.cos(swing) * R;
+			} else if (m.mode === "path") {
+				// travel through waypoints: placed point -> wp0 -> wp1 ...; loop = ping-pong
+				const wps = m.waypoints || [];
+				if (wps.length) {
+					const path = [{ x: o.x, y: o.y }, ...wps];
+					let idx = rt.wpIndex ?? 1; let wdir = rt.wpDir ?? 1;
+					if (idx < 0 || idx >= path.length) { idx = 1; wdir = 1; }
+					const tgt = path[idx];
+					const dx = tgt.x - rt.x, dy = tgt.y - rt.y, d = Math.hypot(dx, dy) || 1;
+					const step = m.speed * dt;
+					if (step >= d) {
+						rt.x = tgt.x; rt.y = tgt.y;
+						let ni = idx + wdir;
+						if (ni >= path.length) { if (m.loop) { wdir = -1; ni = path.length - 2; } else { ni = path.length - 1; wdir = 0; } }
+						else if (ni < 0) { wdir = 1; ni = 1; }
+						rt.wpIndex = ni; rt.wpDir = wdir;
+					} else { rt.x += (dx / d) * step; rt.y += (dy / d) * step; }
+				}
 			}
 			rt.x = clamp(rt.x, 0, VIEW_W); rt.y = clamp(rt.y, BAND_TOP, GROUND_Y + 40);
 		}
