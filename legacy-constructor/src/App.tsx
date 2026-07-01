@@ -136,6 +136,7 @@ const cloneConfig = (config: GameConfig): GameConfig => ({
   spikes: [...config.spikes],
   objects: config.objects.map((object) => ({ ...object })),
   triggers: config.triggers.map((trigger) => ({ ...trigger })),
+  triggerLayers: config.triggerLayers ? config.triggerLayers.map((layer) => ({ ...layer })) : undefined,
 });
 
 const normalizeConfig = (raw: Partial<GameConfig>): GameConfig => {
@@ -1076,6 +1077,65 @@ export default function App() {
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                <Layers className="w-3.5 h-3.5" />
+                Trigger Layers
+              </h3>
+              <button
+                onClick={() => updateActiveConfig({ ...config, triggerLayers: [...(config.triggerLayers || []), { name: `Layer ${(config.triggerLayers || []).length + 1}`, color: PALETTE[((config.triggerLayers || []).length + 4) % PALETTE.length], hidden: false }] })}
+                className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
+            {(config.triggerLayers || []).length === 0 ? (
+              <p className="text-[10px] text-zinc-600">Group triggers into layers to recolor them or hide/show whole groups on the canvas. Assign a trigger to a layer in its editor.</p>
+            ) : (
+              <div className="space-y-2">
+                {(config.triggerLayers || []).map((layer, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <input
+                      type="color"
+                      value={layer.color}
+                      onChange={(e) => updateActiveConfig({ ...config, triggerLayers: (config.triggerLayers || []).map((l, idx) => idx === i ? { ...l, color: e.target.value } : l) })}
+                      className="w-7 h-7 bg-black border border-zinc-800 rounded cursor-pointer p-0.5 shrink-0"
+                      title="Layer color"
+                    />
+                    <input
+                      value={layer.name}
+                      onChange={(e) => {
+                        const oldName = layer.name;
+                        const newName = e.target.value;
+                        updateActiveConfig({
+                          ...config,
+                          triggerLayers: (config.triggerLayers || []).map((l, idx) => idx === i ? { ...l, name: newName } : l),
+                          triggers: config.triggers.map((t) => t.layer === oldName ? { ...t, layer: newName } : t),
+                        });
+                      }}
+                      className="flex-1 bg-black border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300"
+                    />
+                    <button
+                      onClick={() => updateActiveConfig({ ...config, triggerLayers: (config.triggerLayers || []).map((l, idx) => idx === i ? { ...l, hidden: !l.hidden } : l) })}
+                      className="p-1.5 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer"
+                      title={layer.hidden ? 'Show layer' : 'Hide layer'}
+                    >
+                      {layer.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => updateActiveConfig({ ...config, triggerLayers: (config.triggerLayers || []).filter((_, idx) => idx !== i), triggers: config.triggers.map((t) => t.layer === layer.name ? { ...t, layer: undefined } : t) })}
+                      className="p-1.5 rounded bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 cursor-pointer"
+                      title="Delete layer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3">
               Selected: <span className="text-amber-400">{selectedObjectLabel(config, selectedEntityId)}</span>
             </h3>
@@ -1397,6 +1457,14 @@ export default function App() {
             {selectedTrigger && (
               <div className="space-y-3 text-xs">
                 <input value={selectedTrigger.label} onChange={(e) => updateSelectedTrigger({ label: e.target.value })} className="w-full bg-black border border-zinc-800 rounded px-2 py-1.5 text-zinc-300" />
+                {(config.triggerLayers || []).length > 0 && (
+                  <SelectField
+                    label="Layer"
+                    value={selectedTrigger.layer || ''}
+                    options={[{ value: '', label: 'None (default)' }, ...(config.triggerLayers || []).map((l) => ({ value: l.name, label: l.name }))]}
+                    onChange={(layer) => updateSelectedTrigger({ layer: layer || undefined })}
+                  />
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <NumberField label="X" value={selectedTrigger.x} min={0} max={800} onChange={(x) => updateSelectedTrigger({ x })} />
                   <NumberField label="Y" value={selectedTrigger.y} min={0} max={328} onChange={(y) => updateSelectedTrigger({ y })} />

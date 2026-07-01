@@ -615,10 +615,11 @@ export default function LevelDevilGame({
       targetId: string,
       action: string,
       selected: boolean,
+      baseColor: number = COL_CONNECTOR,
     ) => {
       const live = dragging && dragging.kind === 'link' && dragging.id === id ? { x: dragging.x, y: dragging.y } : null;
       const tp = live || targetPoint(targetId);
-      const color = selected || live ? 0xffffff : COL_CONNECTOR;
+      const color = selected || live ? 0xffffff : baseColor;
       connectorsLayer.lineStyle(selected || live ? 4 : 2.5, color, 0.95);
       connectorsLayer.moveTo(sx, sy);
       connectorsLayer.lineTo(tp.x, tp.y);
@@ -673,6 +674,12 @@ export default function LevelDevilGame({
       connectorHandles.addChild(handle);
     };
 
+    // Resolve a trigger's layer definition (color/hidden); undefined = built-in default look.
+    const triggerLayerDef = (trigger: TriggerZone) => {
+      if (!trigger.layer) return undefined;
+      return (stateRef.current.config.triggerLayers || []).find((l) => l.name === trigger.layer);
+    };
+
     const drawConnectors = () => {
       connectorsLayer.clear();
       connectorHandles.removeChildren();
@@ -680,8 +687,10 @@ export default function LevelDevilGame({
       if (s.editorMode !== 'constructor' || !s.showConnectors) return;
 
       s.config.triggers.forEach((trigger) => {
+        const layer = triggerLayerDef(trigger);
+        if (layer?.hidden) return; // layer toggled off
         const selected = s.selectedEntityId === trigger.id || s.selectedEntityId === trigger.targetId;
-        drawConnector('trigger', trigger.id, trigger.x + trigger.width / 2, trigger.y + trigger.height / 2, trigger.targetId, trigger.action, selected);
+        drawConnector('trigger', trigger.id, trigger.x + trigger.width / 2, trigger.y + trigger.height / 2, trigger.targetId, trigger.action, selected, layer ? hexToNum(layer.color, COL_CONNECTOR) : COL_CONNECTOR);
       });
 
       // objects that carry their own action (touch / clickable buttons) also show a link
@@ -699,12 +708,15 @@ export default function LevelDevilGame({
       if (s.editorMode !== 'constructor' || !s.showTriggers) return;
 
       s.config.triggers.forEach((trigger) => {
+        const layer = triggerLayerDef(trigger);
+        if (layer?.hidden) return; // layer toggled off
+        const layerColor = layer ? hexToNum(layer.color, COL_TRIGGER) : COL_TRIGGER;
         const box = new PIXI.Container();
         const g = new PIXI.Graphics();
         const selected = s.selectedEntityId === trigger.id;
         const target = s.config.objects.find((object) => object.id === trigger.targetId);
-        g.beginFill(COL_TRIGGER, selected ? 0.28 : 0.16);
-        g.lineStyle(selected ? 4 : 2, selected ? 0xffffff : COL_TRIGGER, 0.9);
+        g.beginFill(layerColor, selected ? 0.28 : 0.16);
+        g.lineStyle(selected ? 4 : 2, selected ? 0xffffff : layerColor, 0.9);
         g.drawRect(0, 0, trigger.width, trigger.height);
         g.endFill();
         box.addChild(g);
