@@ -613,6 +613,30 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  // Read an uploaded font file, embed it as a data URL, and use its filename as the family name.
+  const handleFontUpload = (e: { target: HTMLInputElement }) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 2_500_000) {
+      addLog('SYSTEM', 'Font too large (max ~2.5MB) for embedding');
+      return;
+    }
+    const family = `custom-${file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const fontUrl = String(reader.result);
+      try {
+        const ff = new FontFace(family, `url(${fontUrl})`);
+        (document as unknown as { fonts: FontFaceSet }).fonts.add(ff);
+        ff.load().catch(() => {});
+      } catch { /* ignore */ }
+      updateSelectedObject({ fontUrl, fontFamily: family });
+      addLog('OBJECT', `Loaded custom font "${file.name}"`);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const updateSelectedTrigger = (patch: Partial<TriggerZone>) => {
     if (!selectedEntityId) return;
     const next = cloneConfig(config);
@@ -1140,7 +1164,25 @@ export default function App() {
                       Lethal only while moving (safe once landed)
                     </label>
                   )}
-                  <NumberField label="Appear delay (s)" value={selectedObject.appearDelay || 0} min={0} max={10} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <NumberField label="Appears after (s)" value={selectedObject.appearDelay || 0} min={0} max={20} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
+                    <NumberField label="Vanishes after (s, 0=never)" value={selectedObject.vanishAfter || 0} min={0} max={20} step={0.1} onChange={(vanishAfter) => updateSelectedObject({ vanishAfter: vanishAfter || undefined })} />
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                      <span>Opacity</span>
+                      <span className="text-amber-500 font-mono">{Math.round((selectedObject.opacity ?? 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={selectedObject.opacity ?? 1}
+                      onChange={(e) => updateSelectedObject({ opacity: parseFloat(e.target.value) })}
+                      className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
+                    />
+                  </div>
                   <SelectField
                     label="Attach to (moves with)"
                     value={selectedObject.attachTo || ''}
@@ -1200,9 +1242,16 @@ export default function App() {
                       <SelectField
                         label="Font"
                         value={selectedObject.fontFamily || 'Arial'}
-                        options={FONT_OPTIONS}
+                        options={selectedObject.fontUrl && selectedObject.fontFamily
+                          ? [{ value: selectedObject.fontFamily, label: `${selectedObject.fontFamily} (uploaded)` }, ...FONT_OPTIONS]
+                          : FONT_OPTIONS}
                         onChange={(fontFamily) => updateSelectedObject({ fontFamily })}
                       />
+                      <label className="flex-1 py-1.5 px-2 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                        <Upload className="w-3.5 h-3.5" />
+                        {selectedObject.fontUrl ? 'Replace custom font' : 'Upload custom font'}
+                        <input type="file" accept=".ttf,.otf,.woff,.woff2,font/*" className="hidden" onChange={handleFontUpload} />
+                      </label>
                       {selectedObject.type === 'text' && (
                         <NumberField label="Text size (px)" value={selectedObject.fontSize || selectedObject.height} min={8} max={120} step={1} onChange={(fontSize) => updateSelectedObject({ fontSize })} />
                       )}
@@ -1279,6 +1328,40 @@ export default function App() {
                       ? 'Player taps this object to fire the action.'
                       : 'Action fires when the player touches this object.'}
                   </p>
+                  <div className="border-t border-zinc-900 pt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-wider text-zinc-500">Extra actions (fire together)</span>
+                      <button
+                        onClick={() => updateSelectedObject({ links: [...(selectedObject.links || []), { targetId: 'door', action: 'activate' }] })}
+                        className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" /> Add
+                      </button>
+                    </div>
+                    {(selectedObject.links || []).map((link, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-1.5 items-end">
+                        <SelectField
+                          label="Does"
+                          value={link.action}
+                          options={ACTION_OPTIONS.filter((o) => o.value !== 'none')}
+                          onChange={(action) => updateSelectedObject({ links: (selectedObject.links || []).map((l, idx) => idx === i ? { ...l, action: action as ObjectActionKind } : l) })}
+                        />
+                        <SelectField
+                          label="On"
+                          value={link.targetId}
+                          options={[{ value: 'door', label: 'Door' }, ...config.objects.filter((o) => o.id !== selectedEntityId).map((o) => ({ value: o.id, label: o.label }))]}
+                          onChange={(targetId) => updateSelectedObject({ links: (selectedObject.links || []).map((l, idx) => idx === i ? { ...l, targetId } : l) })}
+                        />
+                        <button
+                          onClick={() => updateSelectedObject({ links: (selectedObject.links || []).filter((_, idx) => idx !== i) })}
+                          className="mb-0.5 p-1.5 rounded bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 cursor-pointer"
+                          title="Remove action"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">

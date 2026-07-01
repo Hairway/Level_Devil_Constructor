@@ -34,6 +34,7 @@ export default class Game extends IMPION.ComponentEmpty {
 	#trigTimers = new Map();
 	#motionRunIds = new Set();
 	#splitIds = new Set();
+	#loadedFonts = new Set();
 
 	// true when an object should participate in the scene (respects deactivate/toggle)
 	#isActive(o) {
@@ -212,6 +213,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#objectsLayer.position.y = gOff;
 		if (this.#hero.anchor) this.#hero.anchor.set(0.5, 1 - gOff / (this.#hero.height || PLAYER_H));
 		this.#hero.position.set(s.playerSpawnX, GROUND_Y);
+		this.#loadFonts(s.objects);
 		this.#buildObjectSprites();
 		this.#drawFloor();
 		this.#drawDoor();
@@ -328,6 +330,36 @@ export default class Game extends IMPION.ComponentEmpty {
 		return g;
 	}
 
+	// register any uploaded custom fonts (data URLs), then rebuild once they load
+	#loadFonts(objs) {
+		const jobs = [];
+		for (const o of objs) {
+			if (o.fontUrl && o.fontFamily && !this.#loadedFonts.has(o.fontFamily)) {
+				this.#loadedFonts.add(o.fontFamily);
+				try {
+					const ff = new FontFace(o.fontFamily, `url(${o.fontUrl})`);
+					document.fonts.add(ff);
+					jobs.push(ff.load().catch(() => {}));
+				} catch (e) { /* ignore bad font */ }
+			}
+		}
+		if (jobs.length) Promise.all(jobs).then(() => this.#buildObjectSprites());
+	}
+
+	// present = within its [appearDelay, appearDelay+vanishAfter] visible window
+	#present(o, rt) {
+		const since = rt ? rt.since : 0;
+		if (since < (o.appearDelay || 0)) return false;
+		if (o.vanishAfter && since >= (o.appearDelay || 0) + o.vanishAfter) return false;
+		return true;
+	}
+
+	// fire an object's own action plus any extra links (touch or tap)
+	#fireObjectAction(o) {
+		if (o.action && o.action.kind !== "none") this.#runAction(o.action.kind, o.action.targetId);
+		for (const l of (o.links || [])) this.#runAction(l.action, l.targetId);
+	}
+
 	#buildObjectSprites() {
 		this.#objectsLayer.removeChildren();
 		this.#sprites.clear();
@@ -338,11 +370,13 @@ export default class Game extends IMPION.ComponentEmpty {
 			const rt = this.#runtime.get(o.id);
 			g.position.set(rt ? rt.x : o.x, rt ? rt.y : o.y);
 			if (o.rotation) g.rotation = (o.rotation * Math.PI) / 180;
-			g.visible = rt ? rt.since >= (o.appearDelay || 0) : true;
-			if (o.clickable && o.action && o.action.kind !== "none") {
+			if (o.opacity !== undefined) g.alpha = o.opacity;
+			g.visible = this.#present(o, rt);
+			const hasAction = (o.action && o.action.kind !== "none") || (o.links && o.links.length);
+			if (o.clickable && hasAction) {
 				g.eventMode = "static";
 				g.cursor = "pointer";
-				g.on("pointertap", () => this.#runAction(o.action.kind, o.action.targetId));
+				g.on("pointertap", () => this.#fireObjectAction(o));
 			}
 			this.#objectsLayer.addChild(g);
 			this.#sprites.set(o.id, g);
@@ -361,9 +395,7 @@ export default class Game extends IMPION.ComponentEmpty {
 				g.position.set(rt.x, rt.y);
 				if (o.spin) g.rotation = ((o.rotation || 0) * Math.PI / 180) + (rt.spinAngle || 0);
 			}
-			const active = this.#isActive(o);
-			const appeared = rt ? rt.since >= (o.appearDelay || 0) : true;
-			g.visible = active && appeared;
+			g.visible = this.#isActive(o) && this.#present(o, rt);
 		}
 	}
 
@@ -546,7 +578,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		let landed = false;
 		for (const o of s.objects) {
 			const role = roleOf(o);
-			if ((role !== "solid" && role !== "spring") || !(this.#isActive(o))) continue;
+			if ((role !== "solid" && role !== "spring") || !(this.#isActive(o)) || !this.#present(o, this.#runtime.get(o.id))) continue;
 			const r = this.#objectWorldRect(o);
 			const prevFoot = py - this.#vy * dt;
 			if (this.#vy >= 0 && px > r.x && px < r.x + r.w && prevFoot <= r.y + 2 && py >= r.y) {
@@ -649,12 +681,12 @@ export default class Game extends IMPION.ComponentEmpty {
 		for (const o of s.objects) {
 			if (!(this.#isActive(o))) continue;
 			const rt = this.#runtime.get(o.id);
-			if ((o.appearDelay || 0) > 0 && rt && rt.since < o.appearDelay) continue;
+			if (!this.#present(o, rt)) continue;
 			const wr = this.#objectWorldRect(o);
 			const touch = rectsOverlap(pRect.x, pRect.y, pRect.w, pRect.h, wr.x, wr.y, wr.w, wr.h);
-			if (touch && o.action && o.action.kind !== "none" && !o.clickable) {
+			if (touch && !o.clickable && ((o.action && o.action.kind !== "none") || (o.links && o.links.length))) {
 				const key = "obj:" + o.id;
-				if (!this.#firedIds.has(key)) { this.#firedIds.add(key); this.#runAction(o.action.kind, o.action.targetId); }
+				if (!this.#firedIds.has(key)) { this.#firedIds.add(key); this.#fireObjectAction(o); }
 			}
 			if (!isLethal(o, rt ? rt.moving : false)) continue;
 			const cx = rt ? rt.x : o.x;
