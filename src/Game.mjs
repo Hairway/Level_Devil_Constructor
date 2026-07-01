@@ -211,6 +211,22 @@ export default class Game extends IMPION.ComponentEmpty {
 		const col = o.color ? hx(o.color, null) : null;
 		const w = o.width, h = o.height;
 
+		// button: rounded panel with its label (e.g. "Skip"), like the real game
+		if (!o.spriteUrl && o.type === "button") {
+			const box = new IMPION.Group2d();
+			const bg = new IMPION.Graphics2d();
+			bg.roundRect(-w / 2, -h / 2, w, h, 6).fill({ color: col ?? 0xffc164 });
+			bg.roundRect(-w / 2, h / 2 - 5, w, 5, 3).fill({ color: 0xb37111 });
+			box.addChild(bg);
+			const label = new IMPION.Text2dBase({
+				text: (o.label || "").toUpperCase(),
+				style: { fontFamily: "Arial", fontSize: Math.max(9, Math.min(15, h - 8)), fontWeight: "900", fill: 0x231708 },
+			});
+			label.anchor.set(0.5);
+			box.addChild(label);
+			return box;
+		}
+
 		// real Level Devil sprites for spike/saw when available
 		if (!o.spriteUrl && (o.type === "spike" || o.type === "saw")) {
 			const t = this.#tex(o.type === "spike" ? "ld_spike" : "ld_saw");
@@ -237,7 +253,8 @@ export default class Game extends IMPION.ComponentEmpty {
 			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0x3b2611 });
 			g.rect(-w / 2, -h / 2, w, h).stroke({ color: 0x8a1f10, width: 3 });
 		} else if (o.type === "laser") {
-			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0xfef08a, alpha: 0.95 });
+			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0xfef08a, alpha: 0.6 });
+			g.rect(-w / 2, -2, w, 4).fill({ color: col ?? 0xef4444 }); // bright core beam
 		} else if (o.type === "platform") {
 			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0xb37111 });
 			g.rect(-w / 2, -h / 2, w, 4).fill({ color: 0xeab451, alpha: 0.85 });
