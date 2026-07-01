@@ -1354,6 +1354,15 @@ export default function LevelDevilGame({
       s.playerVelY += s.config.gravity * delta;
       player.x += s.playerVelX * delta;
       player.y += s.playerVelY * delta;
+
+      // force zones (conveyors / wind): push the player while inside
+      for (const t of s.config.triggers) {
+        if (!t.pushX && !t.pushY) continue;
+        if (rectsOverlap(player.x - 10, player.y - PLAYER_H, 20, PLAYER_H, t.x, t.y, t.width, t.height)) {
+          player.x += (t.pushX || 0) * delta;
+          player.y += (t.pushY || 0) * delta;
+        }
+      }
       player.x = clamp(player.x, 50, VIEW_W - 50);
 
       if (player.y - PLAYER_H < BAND_TOP) {
