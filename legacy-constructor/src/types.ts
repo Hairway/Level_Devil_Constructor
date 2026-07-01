@@ -63,6 +63,7 @@ export interface LevelObject {
   text?: string; // text drawn on the object (buttons); falls back to label
   textColor?: string; // hex color for the on-object text
   bounce?: number; // launch impulse when role is 'spring' (px/frame; default 18)
+  rotation?: number; // visual rotation in degrees (0 = default; 180 = ceiling spike, ±90 = wall)
 }
 
 export interface TriggerZone {
@@ -95,6 +96,7 @@ export interface GameConfig {
   triggers: TriggerZone[];
   bgColor?: string; // scene backdrop color (hex)
   groundColor?: string; // floor/ground band color (hex)
+  groundOffset?: number; // visual px to nudge hero + objects down toward the ground (0 = none)
 }
 
 export interface PlayableRun {

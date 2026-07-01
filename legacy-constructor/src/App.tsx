@@ -80,6 +80,7 @@ const baseTuning = () => ({
   skipButtonDelay: 1.8,
   playerSpawnX: 90,
   doorSpawnX: 720,
+  groundOffset: 10,
 });
 
 const configFrom = (objects: LevelObject[], triggers: TriggerZone[]): GameConfig => ({
@@ -1036,27 +1037,6 @@ export default function App() {
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
-              <Palette className="w-3.5 h-3.5" />
-              Scene Colors
-            </h3>
-            <div className="space-y-3">
-              <ColorField
-                label="Background"
-                value={config.bgColor || DEFAULT_BG}
-                onChange={(bgColor) => updateActiveConfig({ ...config, bgColor })}
-                onReset={config.bgColor && config.bgColor !== DEFAULT_BG ? () => updateActiveConfig({ ...config, bgColor: DEFAULT_BG }) : undefined}
-              />
-              <ColorField
-                label="Ground"
-                value={config.groundColor || DEFAULT_GROUND}
-                onChange={(groundColor) => updateActiveConfig({ ...config, groundColor })}
-                onReset={config.groundColor && config.groundColor !== DEFAULT_GROUND ? () => updateActiveConfig({ ...config, groundColor: DEFAULT_GROUND }) : undefined}
-              />
-            </div>
-          </section>
-
-          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3">
               Selected: <span className="text-amber-400">{selectedObjectLabel(config, selectedEntityId)}</span>
             </h3>
@@ -1102,6 +1082,32 @@ export default function App() {
                   {(selectedObject.role || objectPreset(selectedObject.type).role) === 'spring' && (
                     <NumberField label="Bounce force" value={selectedObject.bounce ?? 18} min={6} max={30} step={1} onChange={(bounce) => updateSelectedObject({ bounce })} />
                   )}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] uppercase tracking-wider text-zinc-500">Rotation</span>
+                      <div className="flex gap-1">
+                        {[0, 90, 180, 270].map((deg) => (
+                          <button
+                            key={deg}
+                            onClick={() => updateSelectedObject({ rotation: deg })}
+                            className={`px-1.5 py-0.5 rounded text-[10px] border cursor-pointer ${(selectedObject.rotation || 0) % 360 === deg ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+                          >
+                            {deg}°
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={360}
+                      step={5}
+                      value={selectedObject.rotation || 0}
+                      onChange={(e) => updateSelectedObject({ rotation: Number(e.target.value) })}
+                      className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
+                    />
+                    <p className="text-[10px] text-zinc-600 mt-0.5">180° = ceiling spike · 90/270° = wall spike</p>
+                  </div>
                   <NumberField label="Appear delay (s)" value={selectedObject.appearDelay || 0} min={0} max={10} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
                   <SelectField
                     label="Attach to (moves with)"
@@ -1392,6 +1398,27 @@ export default function App() {
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <Palette className="w-3.5 h-3.5" />
+              Scene Colors
+            </h3>
+            <div className="space-y-3">
+              <ColorField
+                label="Background"
+                value={config.bgColor || DEFAULT_BG}
+                onChange={(bgColor) => updateActiveConfig({ ...config, bgColor })}
+                onReset={config.bgColor && config.bgColor !== DEFAULT_BG ? () => updateActiveConfig({ ...config, bgColor: DEFAULT_BG }) : undefined}
+              />
+              <ColorField
+                label="Ground"
+                value={config.groundColor || DEFAULT_GROUND}
+                onChange={(groundColor) => updateActiveConfig({ ...config, groundColor })}
+                onReset={config.groundColor && config.groundColor !== DEFAULT_GROUND ? () => updateActiveConfig({ ...config, groundColor: DEFAULT_GROUND }) : undefined}
+              />
+            </div>
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
               <Sliders className="w-3.5 h-3.5" />
               Tuning
             </h3>
@@ -1420,6 +1447,22 @@ export default function App() {
                 />
               </div>
             ))}
+            <div className="mb-1 pt-1 border-t border-zinc-900">
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-zinc-300">Ground offset (nudge down)</span>
+                <span className="text-amber-500 font-mono">{config.groundOffset ?? 0}px</span>
+              </div>
+              <input
+                type="range"
+                min={-10}
+                max={24}
+                step={1}
+                value={config.groundOffset ?? 0}
+                onChange={(e) => updateActiveConfig({ ...config, groundOffset: parseFloat(e.target.value) })}
+                className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
+              />
+              <p className="text-[10px] text-zinc-600 mt-0.5">Visually lowers the hero &amp; traps so they sit on the ground.</p>
+            </div>
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">

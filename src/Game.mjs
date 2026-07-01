@@ -180,6 +180,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			doorSpawnX: c.doorSpawnX ?? 720,
 			bgColor: c.bgColor || DEFAULT_BG,
 			groundColor: c.groundColor || DEFAULT_GROUND,
+			groundOffset: c.groundOffset || 0,
 			objects: Array.isArray(c.objects) ? c.objects : [],
 			triggers: Array.isArray(c.triggers) ? c.triggers : [],
 		};
@@ -199,6 +200,10 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#motionRunIds = new Set(s.objects.filter((o) => motionOf(o).startOn === "spawn").map((o) => o.id));
 		this.#runtime = new Map(s.objects.map((o) => [o.id, { x: o.x, y: o.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 }]));
 
+		// visual-only downward nudge so the hero + traps sit on the ground (physics unchanged)
+		const gOff = s.groundOffset || 0;
+		this.#objectsLayer.position.y = gOff;
+		if (this.#hero.anchor) this.#hero.anchor.set(0.5, 1 - gOff / (this.#hero.height || PLAYER_H));
 		this.#hero.position.set(s.playerSpawnX, GROUND_Y);
 		this.#buildObjectSprites();
 		this.#drawFloor();
@@ -314,6 +319,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			const g = this.#makeObjectGraphic(o);
 			const rt = this.#runtime.get(o.id);
 			g.position.set(rt ? rt.x : o.x, rt ? rt.y : o.y);
+			if (o.rotation) g.rotation = (o.rotation * Math.PI) / 180;
 			g.visible = rt ? rt.since >= (o.appearDelay || 0) : true;
 			if (o.clickable && o.action && o.action.kind !== "none") {
 				g.eventMode = "static";
@@ -360,17 +366,18 @@ export default class Game extends IMPION.ComponentEmpty {
 
 	#drawDoor() {
 		const g = this.#doorGfx;
+		const gOff = (this.#config && this.#config.groundOffset) || 0;
 		const armed = this.#door.armed || this.#runIndex === 2;
 		if (g instanceof IMPION.Sprite2d) {
 			const t = this.#tex(armed ? "ld_door_armed" : "ld_door");
 			if (t) g.texture = t;
-			g.position.set(this.#door.x, this.#door.y);
+			g.position.set(this.#door.x, this.#door.y + gOff);
 			return;
 		}
 		g.clear();
 		g.rect(-DOOR_W / 2, -DOOR_H, DOOR_W, DOOR_H).fill({ color: 0xcfcfcf });
 		g.rect(-DOOR_W / 2, -DOOR_H, DOOR_W, DOOR_H).stroke({ color: armed ? 0x8a1f10 : 0xb37111, width: 6 });
-		g.position.set(this.#door.x, this.#door.y);
+		g.position.set(this.#door.x, this.#door.y + gOff);
 	}
 
 	//------------------------------------------------------------------------
@@ -610,7 +617,13 @@ export default class Game extends IMPION.ComponentEmpty {
 			}
 			if (roleOf(o) !== "hazard") continue;
 			const cx = rt ? rt.x : o.x;
-			if (o.type === "spike") { if (Math.abs(px - cx) < o.width / 2 && py > GROUND_Y - 12) { this.#die(); return; } continue; }
+			if (o.type === "spike") {
+				const oy = rt ? rt.y : o.y;
+				const floorSpike = !o.rotation && oy >= GROUND_Y - 14;
+				if (floorSpike) { if (Math.abs(px - cx) < o.width / 2 && py > GROUND_Y - 12) { this.#die(); return; } }
+				else if (touch) { this.#die(); return; } // ceiling / wall / repositioned spike
+				continue;
+			}
 			if (touch) { this.#die(); return; }
 		}
 
