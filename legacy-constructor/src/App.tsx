@@ -342,6 +342,8 @@ const MOTION_MODES: Array<{ value: MotionMode; label: string }> = [
   { value: 'linear', label: 'Linear (direction)' },
   { value: 'chase', label: 'Chase target' },
   { value: 'fall', label: 'Fall' },
+  { value: 'orbit', label: 'Orbit (circle a point)' },
+  { value: 'pendulum', label: 'Pendulum (swing)' },
 ];
 const FONT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'Arial', label: 'Arial' },
@@ -1360,6 +1362,18 @@ export default function App() {
                           <input type="checkbox" checked={selObjMotion.loop} onChange={(e) => updateSelectedMotion({ loop: e.target.checked })} />
                           Loop back and forth
                         </label>
+                      </>
+                    )}
+                    {(selObjMotion.mode === 'orbit' || selObjMotion.mode === 'pendulum') && (
+                      <>
+                        <NumberField label="Radius (px)" value={selObjMotion.distance || 40} min={8} max={400} step={2} onChange={(distance) => updateSelectedMotion({ distance })} />
+                        {selObjMotion.mode === 'orbit' && (
+                          <label className="flex items-center gap-2 text-zinc-400">
+                            <input type="checkbox" checked={selObjMotion.loop} onChange={(e) => updateSelectedMotion({ loop: e.target.checked })} />
+                            Reverse direction
+                          </label>
+                        )}
+                        <p className="text-[10px] text-zinc-600">{selObjMotion.mode === 'orbit' ? 'Circles around the point where you placed it.' : 'Swings like a blade; rest position is where you placed it.'}</p>
                       </>
                     )}
                     {selObjMotion.mode !== 'static' && (

@@ -11,7 +11,7 @@ export type TrapObjectType =
 export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
 
 // How an object behaves over time once it is active.
-export type MotionMode = 'static' | 'linear' | 'chase' | 'fall';
+export type MotionMode = 'static' | 'linear' | 'chase' | 'fall' | 'orbit' | 'pendulum';
 // How an object collides with the player.
 export type CollisionRole = 'hazard' | 'solid' | 'pit' | 'decor' | 'spring';
 // What an object/trigger does when fired (touch by player, or tap when clickable).

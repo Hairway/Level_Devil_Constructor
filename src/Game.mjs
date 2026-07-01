@@ -640,6 +640,19 @@ export default class Game extends IMPION.ComponentEmpty {
 				const dx = tx - rt.x, dy = ty - rt.y, d = Math.hypot(dx, dy) || 1;
 				const step = Math.min(m.speed * dt, d);
 				rt.x += (dx / d) * step; rt.y += (dy / d) * step;
+			} else if (m.mode === "orbit") {
+				// circle around the placed point; radius = distance, loop = reverse direction
+				rt.orbit = (rt.orbit || 0) + m.speed * 0.03 * dt * (m.loop ? -1 : 1);
+				const R = m.distance || 40;
+				rt.x = o.x + Math.cos(rt.orbit) * R;
+				rt.y = o.y + Math.sin(rt.orbit) * R;
+			} else if (m.mode === "pendulum") {
+				// swing on an arc; rest position = placed point, pivot R above it
+				rt.orbit = (rt.orbit || 0) + m.speed * 0.05 * dt;
+				const R = m.distance || 40;
+				const swing = Math.sin(rt.orbit) * 1.2; // ~±70°
+				rt.x = o.x + Math.sin(swing) * R;
+				rt.y = (o.y - R) + Math.cos(swing) * R;
 			}
 			rt.x = clamp(rt.x, 0, VIEW_W); rt.y = clamp(rt.y, BAND_TOP, GROUND_Y + 40);
 		}

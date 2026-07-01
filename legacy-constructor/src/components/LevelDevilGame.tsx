@@ -26,7 +26,7 @@ const COL_CONNECTOR = 0xfbbf24;
 type DeathCause = 'SAW' | 'SPIKE' | 'PIT' | 'CRUSH' | 'LASER' | 'REDIRECT';
 // Per-object runtime: live position, fall velocity, distance travelled (linear), ping-pong sign,
 // seconds since the object became active (drives motion delay + appearDelay), and floor-split progress.
-type ObjectRuntime = { x: number; y: number; vy: number; traveled: number; pong: number; since: number; split: number; moving?: boolean; spinAngle?: number; lastX?: number; lastY?: number };
+type ObjectRuntime = { x: number; y: number; vy: number; traveled: number; pong: number; since: number; split: number; moving?: boolean; spinAngle?: number; lastX?: number; lastY?: number; orbit?: number };
 
 const TRAP_TOOLS = new Set<TrapObjectType>(objectCatalog.map((item) => item.type));
 const isTrapTool = (tool: EditorTool): tool is TrapObjectType => TRAP_TOOLS.has(tool as TrapObjectType);
@@ -1459,6 +1459,19 @@ export default function LevelDevilGame({
           rt.x += (dx / d) * step;
           rt.y += (dy / d) * step;
           objectsDirty = true;
+        } else if (m.mode === 'orbit') {
+          // circle around the placed point; radius = distance, loop = reverse direction
+          rt.orbit = (rt.orbit || 0) + m.speed * 0.03 * delta * (m.loop ? -1 : 1);
+          const R = m.distance || 40;
+          rt.x = object.x + Math.cos(rt.orbit) * R;
+          rt.y = object.y + Math.sin(rt.orbit) * R;
+        } else if (m.mode === 'pendulum') {
+          // swing on an arc; rest position = placed point, pivot R above it
+          rt.orbit = (rt.orbit || 0) + m.speed * 0.05 * delta;
+          const R = m.distance || 40;
+          const swing = Math.sin(rt.orbit) * 1.2;
+          rt.x = object.x + Math.sin(swing) * R;
+          rt.y = (object.y - R) + Math.cos(swing) * R;
         }
         rt.x = clamp(rt.x, 0, VIEW_W);
         rt.y = clamp(rt.y, BAND_TOP, GROUND_Y + 40);
