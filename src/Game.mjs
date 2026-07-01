@@ -4,6 +4,7 @@ import {
 	COL_INK, DEFAULT_BG, DEFAULT_GROUND,
 	hx, lightenNum, roleOf, motionOf, isBottomAnchored, objectLocalRect, rectsOverlap, clamp,
 } from "./LevelConfig.mjs";
+import levelJson from "./level.json"; // level authored by the constructor (source of truth)
 
 // Level Devil engine on the IMPION base — ported from the constructor's PixiJS runtime.
 // Authored inside LevelRoot using the legacy 800x328 coordinate space (ground at y=280).
@@ -103,8 +104,11 @@ export default class Game extends IMPION.ComponentEmpty {
 	//------------------------------------------------------------------------
 
 	#project() {
+		// params.levelData overrides the file when set (studio preview), else use level.json.
 		const p = this.#app.params.levelData;
-		return (p && p.value) ? p.value : { runs: [{ config: {} }] };
+		if (p && p.value && Array.isArray(p.value.runs) && p.value.runs.length) return p.value;
+		if (levelJson && Array.isArray(levelJson.runs) && levelJson.runs.length) return levelJson;
+		return { runs: [{ config: {} }] };
 	}
 
 	#tex(name) {
