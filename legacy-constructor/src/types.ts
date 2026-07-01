@@ -87,6 +87,7 @@ export interface TriggerZone {
   targetId: string;
   action: TriggerAction;
   label: string;
+  layer?: string; // editor organization: name of the trigger layer this belongs to
   links?: Array<{ targetId: string; action: TriggerAction }>; // extra links fired alongside the primary
   delay?: number; // seconds after the player enters (or run start, if auto) before firing
   repeat?: boolean; // re-fire every time the player enters (default: fire once)
@@ -110,6 +111,13 @@ export interface GameConfig {
   bgColor?: string; // scene backdrop color (hex)
   groundColor?: string; // floor/ground band color (hex)
   groundOffset?: number; // visual px to nudge hero + objects down toward the ground (0 = none)
+  triggerLayers?: TriggerLayer[]; // editor-only: named layers to color/hide groups of triggers
+}
+
+export interface TriggerLayer {
+  name: string;
+  color: string; // hex color for this layer's triggers + connectors in the editor
+  hidden?: boolean; // hide this layer's triggers + links in the editor canvas
 }
 
 export interface PlayableRun {
