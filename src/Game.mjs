@@ -107,13 +107,49 @@ export default class Game extends IMPION.ComponentEmpty {
 		return (p && p.value) ? p.value : { runs: [{ config: {} }] };
 	}
 
+	#tex(name) {
+		const a = this.#app.assets;
+		const t = (a && a.textures && a.textures.pixi) ? a.textures.pixi[name] : null;
+		if (t && t.source) t.source.scaleMode = 'nearest'; // keep pixel art crisp when scaled
+		return t;
+	}
+
+	#heroTex = null;
+	#heroScale = 2.4;
+	#animTimer = 0;
+
 	initGame = () => {
 		const root = this.components["LevelRoot"];
 		this.#floorGfx = new IMPION.Graphics2d();
 		this.#objectsLayer = new IMPION.Group2d();
-		this.#hero = new IMPION.Graphics2d();
-		this.#hero.rect(-PLAYER_W / 2, -PLAYER_H, PLAYER_W, PLAYER_H).fill({ color: COL_INK });
-		this.#doorGfx = new IMPION.Graphics2d();
+
+		// Hero: real sprite (idle/run/jump) when assets are present, else a dark rect.
+		const idle = this.#tex("ld_hero_idle");
+		if (idle) {
+			this.#heroTex = {
+				idle,
+				jump: this.#tex("ld_hero_jump") || idle,
+				run: [1, 2, 3, 4].map((i) => this.#tex("ld_hero_run_" + i) || idle),
+			};
+			this.#hero = new IMPION.Sprite2d(idle);
+			this.#hero.anchor.set(0.5, 1);
+			this.#hero.tint = COL_INK;
+			this.#hero.scale.set(this.#heroScale);
+		} else {
+			this.#hero = new IMPION.Graphics2d();
+			this.#hero.rect(-PLAYER_W / 2, -PLAYER_H, PLAYER_W, PLAYER_H).fill({ color: COL_INK });
+		}
+
+		// Door: real sprite (safe/armed) when present, else a rect.
+		const doorTex = this.#tex("ld_door");
+		if (doorTex) {
+			this.#doorGfx = new IMPION.Sprite2d(doorTex);
+			this.#doorGfx.anchor.set(0.5, 1);
+			this.#doorGfx.scale.set(DOOR_W / 16, DOOR_H / 16);
+		} else {
+			this.#doorGfx = new IMPION.Graphics2d();
+		}
+
 		root.addChild(this.#floorGfx, this.#objectsLayer, this.#doorGfx, this.#hero);
 		this.#loadRun(0);
 	};
@@ -170,6 +206,19 @@ export default class Game extends IMPION.ComponentEmpty {
 		const active = this.#activeIds.has(o.id);
 		const col = o.color ? hx(o.color, null) : null;
 		const w = o.width, h = o.height;
+
+		// real Level Devil sprites for spike/saw when available
+		if (!o.spriteUrl && (o.type === "spike" || o.type === "saw")) {
+			const t = this.#tex(o.type === "spike" ? "ld_spike" : "ld_saw");
+			if (t) {
+				const sp = new IMPION.Sprite2d(t);
+				sp.anchor.set(0.5, o.type === "spike" ? 1 : 0.5);
+				sp.scale.set(w / 16, h / 16);
+				if (col != null) sp.tint = col;
+				else if (o.type === "spike") sp.tint = COL_INK; // spikes are inked by default
+				return sp;
+			}
+		}
 		if (o.type === "spike") {
 			g.poly([-w / 2, 0, 0, -h, w / 2, 0]).fill({ color: col ?? COL_INK });
 		} else if (o.type === "saw") {
@@ -257,8 +306,14 @@ export default class Game extends IMPION.ComponentEmpty {
 
 	#drawDoor() {
 		const g = this.#doorGfx;
-		g.clear();
 		const armed = this.#door.armed || this.#runIndex === 2;
+		if (g instanceof IMPION.Sprite2d) {
+			const t = this.#tex(armed ? "ld_door_armed" : "ld_door");
+			if (t) g.texture = t;
+			g.position.set(this.#door.x, this.#door.y);
+			return;
+		}
+		g.clear();
 		g.rect(-DOOR_W / 2, -DOOR_H, DOOR_W, DOOR_H).fill({ color: 0xcfcfcf });
 		g.rect(-DOOR_W / 2, -DOOR_H, DOOR_W, DOOR_H).stroke({ color: armed ? 0x8a1f10 : 0xb37111, width: 6 });
 		g.position.set(this.#door.x, this.#door.y);
@@ -325,6 +380,18 @@ export default class Game extends IMPION.ComponentEmpty {
 
 	//------------------------------------------------------------------------
 
+	#updateHeroVisual(dt) {
+		const hero = this.#hero;
+		if (this.#heroTex) {
+			if (!this.#grounded) hero.texture = this.#heroTex.jump;
+			else if (this.#vx !== 0) { this.#animTimer += dt; hero.texture = this.#heroTex.run[Math.floor(this.#animTimer / 5) % 4]; }
+			else { this.#animTimer = 0; hero.texture = this.#heroTex.idle; }
+			hero.scale.set(this.#facing * this.#heroScale, this.#heroScale);
+		} else {
+			hero.scale.x = this.#facing;
+		}
+	}
+
 	#objectWorldRect(o) {
 		const rt = this.#runtime.get(o.id);
 		const r = objectLocalRect(o);
@@ -382,7 +449,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		}
 
 		hero.position.set(px, py);
-		hero.scale.x = this.#facing;
+		this.#updateHeroVisual(dt);
 
 		//- object timers / motion
 
