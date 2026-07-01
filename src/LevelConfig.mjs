@@ -42,6 +42,14 @@ const ROLE = {
 };
 export const roleOf = (o) => o.role || ROLE[o.type] || 'decor';
 
+// Whether an object kills on touch. `deadly` overrides the role default; `deadlyWhileMoving`
+// makes it lethal only while it is actually moving (safe once it settles).
+export const isLethal = (o, moving) => {
+	const base = o.deadly !== undefined ? o.deadly : roleOf(o) === 'hazard';
+	if (!base) return false;
+	return o.deadlyWhileMoving ? !!moving : true;
+};
+
 export const isBottomAnchored = (type) => type === 'spike' || type === 'pit';
 
 // Motion config for an object (falling blocks default to fall-on-trigger; others static-on-spawn).

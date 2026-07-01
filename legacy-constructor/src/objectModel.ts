@@ -44,6 +44,7 @@ export const objectCatalog: ObjectPreset[] = [
   { type: 'laser', label: 'Laser Beam', width: 130, height: 14, y: 212, initiallyActive: false, role: 'hazard' },
   { type: 'platform', label: 'Platform', width: 90, height: 18, y: 200, initiallyActive: true, role: 'solid' },
   { type: 'button', label: 'Button', width: 66, height: 30, y: 150, initiallyActive: true, role: 'decor' },
+  { type: 'text', label: 'Text', width: 120, height: 28, y: 90, initiallyActive: true, role: 'decor' },
 ];
 
 export const objectPreset = (type: TrapObjectType): ObjectPreset =>
@@ -66,6 +67,14 @@ export const defaultAction = (): ObjectAction => ({ kind: 'none', targetId: 'doo
 // Collision role for an object: explicit role wins, otherwise the preset default for its type.
 export const effectiveRole = (object: LevelObject): CollisionRole =>
   object.role || objectPreset(object.type).role;
+
+// Whether an object kills on touch. `deadly` overrides the role default; `deadlyWhileMoving`
+// makes it lethal only while it is actually moving/falling (safe once it settles).
+export const isLethal = (object: LevelObject, moving: boolean): boolean => {
+  const base = object.deadly !== undefined ? object.deadly : effectiveRole(object) === 'hazard';
+  if (!base) return false;
+  return object.deadlyWhileMoving ? !!moving : true;
+};
 
 // Motion config for an object, defaulting falling blocks to their legacy fall-on-trigger behavior.
 export const objectMotion = (object: LevelObject): ObjectMotion => {

@@ -6,7 +6,8 @@ export type TrapObjectType =
   | 'crusher'
   | 'laser'
   | 'platform'
-  | 'button';
+  | 'button'
+  | 'text';
 export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
 
 // How an object behaves over time once it is active.
@@ -62,10 +63,15 @@ export interface LevelObject {
   appearDelay?: number; // seconds before the object becomes visible/active in play
   spriteUrl?: string; // custom image for loaded/imported objects
   attachTo?: string; // follow another entity: '' | 'door' | 'player' | objectId (moves with it)
-  text?: string; // text drawn on the object (buttons); falls back to label
+  text?: string; // text drawn on the object (buttons/text); falls back to label
   textColor?: string; // hex color for the on-object text
+  fontFamily?: string; // font for text/button labels (CSS family name)
+  fontSize?: number; // explicit text size in px (text objects); falls back to height
   bounce?: number; // launch impulse when role is 'spring' (px/frame; default 18)
   rotation?: number; // visual rotation in degrees (0 = default; 180 = ceiling spike, ±90 = wall)
+  spin?: number; // continuous rotation speed in degrees/frame (0 = none; e.g. spinning saws)
+  deadly?: boolean; // explicit "kills on touch" override (undefined = derive from hazard role)
+  deadlyWhileMoving?: boolean; // only lethal while moving/falling; safe once settled
 }
 
 export interface TriggerZone {
@@ -77,6 +83,7 @@ export interface TriggerZone {
   targetId: string;
   action: TriggerAction;
   label: string;
+  links?: Array<{ targetId: string; action: TriggerAction }>; // extra links fired alongside the primary
   delay?: number; // seconds after the player enters (or run start, if auto) before firing
   repeat?: boolean; // re-fire every time the player enters (default: fire once)
   auto?: boolean; // fire automatically on a timer (delay from run start), no touch needed
@@ -131,6 +138,7 @@ export type EditorTool =
   | 'laser'
   | 'platform'
   | 'button'
+  | 'text'
   | 'trigger'
   | 'erase';
 export type ActiveRun = number;
