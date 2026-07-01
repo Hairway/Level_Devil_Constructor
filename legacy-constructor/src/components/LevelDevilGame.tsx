@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import * as PIXI from 'pixi.js';
 import { ActiveRun, EditorMode, EditorTool, GameConfig, LevelObject, ObjectActionKind, TrapObjectType, TriggerZone } from '../types';
-import { DEFAULT_BG, DEFAULT_GROUND, effectiveRole, hexToNum, lightenNum, objectCatalog, objectMotion, objectPreset } from '../objectModel';
+import { DEFAULT_BG, DEFAULT_GROUND, effectiveRole, hexToNum, isLethal, lightenNum, objectCatalog, objectMotion, objectPreset } from '../objectModel';
 import * as A from '../assets';
 
 const STORE_URL = 'https://play.google.com/store/apps/details?id=com.leveldevil';
@@ -26,7 +26,7 @@ const COL_CONNECTOR = 0xfbbf24;
 type DeathCause = 'SAW' | 'SPIKE' | 'PIT' | 'CRUSH' | 'LASER' | 'REDIRECT';
 // Per-object runtime: live position, fall velocity, distance travelled (linear), ping-pong sign,
 // seconds since the object became active (drives motion delay + appearDelay), and floor-split progress.
-type ObjectRuntime = { x: number; y: number; vy: number; traveled: number; pong: number; since: number; split: number };
+type ObjectRuntime = { x: number; y: number; vy: number; traveled: number; pong: number; since: number; split: number; moving?: boolean; spinAngle?: number; lastX?: number; lastY?: number };
 
 const TRAP_TOOLS = new Set<TrapObjectType>(objectCatalog.map((item) => item.type));
 const isTrapTool = (tool: EditorTool): tool is TrapObjectType => TRAP_TOOLS.has(tool as TrapObjectType);
@@ -529,6 +529,18 @@ export default function LevelDevilGame({
         g.lineStyle(2, COL_INK, active ? 0.7 : 0.3);
         g.drawRect(-object.width / 2, -object.height / 2, object.width, object.height);
         display = g;
+      } else if (object.type === 'text') {
+        // free text block: no panel, full behaviors via motion/action/appear
+        const text = new PIXI.Text(object.text ?? object.label ?? '', {
+          fill: object.textColor ? hexToNum(object.textColor) : (col ?? 0xffffff),
+          fontSize: object.fontSize || Math.max(10, object.height),
+          fontFamily: object.fontFamily || 'Arial',
+          fontWeight: 'bold',
+          align: 'center',
+        });
+        text.anchor.set(0.5);
+        text.resolution = 2;
+        display = text;
       } else {
         // button: optional texture (or a chunky panel) with custom text on top
         const box = new PIXI.Container();
@@ -554,7 +566,7 @@ export default function LevelDevilGame({
           const text = new PIXI.Text(label.toUpperCase(), {
             fill: object.textColor ? hexToNum(object.textColor) : COL_INK,
             fontSize: Math.min(14, object.height - 8),
-            fontFamily: 'monospace',
+            fontFamily: object.fontFamily || 'monospace',
             fontWeight: 'bold',
           });
           text.anchor.set(0.5);
@@ -788,8 +800,11 @@ export default function LevelDevilGame({
         if (!display) return;
         const rt = s.objectRuntime.get(object.id);
         if (rt) {
+          rt.moving = Math.abs(rt.x - (rt.lastX ?? rt.x)) > 0.05 || Math.abs(rt.y - (rt.lastY ?? rt.y)) > 0.05;
+          rt.lastX = rt.x; rt.lastY = rt.y;
           display.x = rt.x;
           display.y = rt.y;
+          if (object.spin) display.rotation = ((object.rotation || 0) * Math.PI) / 180 + (rt.spinAngle || 0);
         }
         const active = (s.activeObjectIds.has(object.id) || object.initiallyActive) && !s.hiddenObjectIds.has(object.id);
         const appeared = rt ? rt.since >= (object.appearDelay || 0) : true;
@@ -977,6 +992,7 @@ export default function LevelDevilGame({
           if (chained && !s.firedTriggerIds.has(chained.id)) {
             s.firedTriggerIds.add(chained.id);
             runAction(chained.action as ObjectActionKind, chained.targetId, chained.label);
+            for (const l of (chained.links || [])) runAction(l.action as ObjectActionKind, l.targetId, chained.label);
           }
           return;
         }
@@ -1032,6 +1048,7 @@ export default function LevelDevilGame({
       if (s.firedTriggerIds.has(trigger.id)) return;
       s.firedTriggerIds.add(trigger.id);
       runAction(trigger.action as ObjectActionKind, trigger.targetId, trigger.label);
+      for (const l of (trigger.links || [])) runAction(l.action as ObjectActionKind, l.targetId, trigger.label);
     };
 
     floorGraphics.eventMode = 'static';
@@ -1324,6 +1341,7 @@ export default function LevelDevilGame({
         if (!rt) continue;
         const before = rt.since;
         rt.since += (1 / 60) * delta;
+        if (object.spin) rt.spinAngle = (rt.spinAngle || 0) + (object.spin * Math.PI / 180) * delta; // continuous spin
 
         if ((object.appearDelay || 0) > 0 && before < object.appearDelay! && rt.since >= object.appearDelay!) {
           objectsDirty = true; // object just became visible
@@ -1420,7 +1438,7 @@ export default function LevelDevilGame({
           }
         }
 
-        if (effectiveRole(object) !== 'hazard') continue;
+        if (!isLethal(object, rt ? !!rt.moving : false)) continue;
         const cx = rt ? rt.x : object.x;
         if (object.type === 'spike') {
           const oy = rt ? rt.y : object.y;

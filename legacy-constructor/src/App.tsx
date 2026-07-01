@@ -92,6 +92,9 @@ const configFrom = (objects: LevelObject[], triggers: TriggerZone[]): GameConfig
 
 const createDefaultConfig = (): GameConfig => configFrom(baseObjects(), baseTriggers());
 
+// A genuinely empty run: no objects, no triggers (the "Empty Run" button uses this).
+const createEmptyConfig = (): GameConfig => configFrom([], []);
+
 // Sandbox playable showcasing every object type and the new behaviours (kept out of the build).
 const createTestConfig = (): GameConfig => {
   const objects: LevelObject[] = [
@@ -339,6 +342,16 @@ const MOTION_MODES: Array<{ value: MotionMode; label: string }> = [
   { value: 'chase', label: 'Chase target' },
   { value: 'fall', label: 'Fall' },
 ];
+const FONT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'Arial', label: 'Arial' },
+  { value: 'Georgia, serif', label: 'Georgia (serif)' },
+  { value: 'Times New Roman, serif', label: 'Times' },
+  { value: 'Courier New, monospace', label: 'Courier (mono)' },
+  { value: 'Impact, sans-serif', label: 'Impact' },
+  { value: 'Comic Sans MS, cursive', label: 'Comic Sans' },
+  { value: 'Trebuchet MS, sans-serif', label: 'Trebuchet' },
+  { value: 'Verdana, sans-serif', label: 'Verdana' },
+];
 const ROLE_OPTIONS: Array<{ value: CollisionRole; label: string }> = [
   { value: 'hazard', label: 'Hazard (kills)' },
   { value: 'solid', label: 'Solid (platform)' },
@@ -508,7 +521,7 @@ export default function App() {
 
   const addRun = (copyCurrent = false, sourceRunIndex = activeRunIndex) => {
     const sourceRun = activeProject.runs[sourceRunIndex] || activeRun;
-    const sourceConfig = copyCurrent ? sourceRun.config : createDefaultConfig();
+    const sourceConfig = copyCurrent ? sourceRun.config : createEmptyConfig();
     const nextRun = createRun(`Run ${activeProject.runs.length + 1}`, sourceConfig);
     setProjects((prev) => prev.map((project, projectIndex) => {
       if (projectIndex !== activeProjectIndex) return project;
@@ -1110,6 +1123,23 @@ export default function App() {
                     />
                     <p className="text-[10px] text-zinc-600 mt-0.5">180° = ceiling spike · 90/270° = wall spike</p>
                   </div>
+                  <NumberField label="Spin (°/frame, e.g. saws)" value={selectedObject.spin || 0} min={0} max={30} step={0.5} onChange={(spin) => updateSelectedObject({ spin })} />
+                  <SelectField
+                    label="Kills player on touch"
+                    value={selectedObject.deadly === undefined ? 'auto' : selectedObject.deadly ? 'always' : 'never'}
+                    options={[
+                      { value: 'auto', label: 'Auto (hazard types kill)' },
+                      { value: 'always', label: 'Always kills' },
+                      { value: 'never', label: 'Never kills (safe)' },
+                    ]}
+                    onChange={(v) => updateSelectedObject({ deadly: v === 'auto' ? undefined : v === 'always' })}
+                  />
+                  {(selectedObject.deadly !== false && (selectedObject.deadly || (selectedObject.role || objectPreset(selectedObject.type).role) === 'hazard')) && (
+                    <label className="flex items-center gap-2 text-zinc-400">
+                      <input type="checkbox" checked={!!selectedObject.deadlyWhileMoving} onChange={(e) => updateSelectedObject({ deadlyWhileMoving: e.target.checked })} />
+                      Lethal only while moving (safe once landed)
+                    </label>
+                  )}
                   <NumberField label="Appear delay (s)" value={selectedObject.appearDelay || 0} min={0} max={10} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
                   <SelectField
                     label="Attach to (moves with)"
@@ -1156,20 +1186,29 @@ export default function App() {
                       </>
                     )}
                   </div>
-                  {selectedObject.type === 'button' && (
+                  {(selectedObject.type === 'button' || selectedObject.type === 'text') && (
                     <>
                       <label className="block">
-                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Button text</span>
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">{selectedObject.type === 'text' ? 'Text content' : 'Button text'}</span>
                         <input
                           value={selectedObject.text ?? selectedObject.label ?? ''}
-                          placeholder="e.g. SKIP"
+                          placeholder={selectedObject.type === 'text' ? 'Type your text…' : 'e.g. SKIP'}
                           onChange={(e) => updateSelectedObject({ text: e.target.value })}
                           className={`${inputClass} text-[11px]`}
                         />
                       </label>
+                      <SelectField
+                        label="Font"
+                        value={selectedObject.fontFamily || 'Arial'}
+                        options={FONT_OPTIONS}
+                        onChange={(fontFamily) => updateSelectedObject({ fontFamily })}
+                      />
+                      {selectedObject.type === 'text' && (
+                        <NumberField label="Text size (px)" value={selectedObject.fontSize || selectedObject.height} min={8} max={120} step={1} onChange={(fontSize) => updateSelectedObject({ fontSize })} />
+                      )}
                       <ColorField
                         label="Text color"
-                        value={selectedObject.textColor || '#231708'}
+                        value={selectedObject.textColor || (selectedObject.type === 'text' ? '#ffffff' : '#231708')}
                         onChange={(textColor) => updateSelectedObject({ textColor })}
                         onReset={selectedObject.textColor ? () => updateSelectedObject({ textColor: undefined }) : undefined}
                       />
@@ -1355,6 +1394,43 @@ export default function App() {
                     </div>
                   );
                 })()}
+                <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500">Extra links (fire together)</span>
+                    <button
+                      onClick={() => updateSelectedTrigger({ links: [...(selectedTrigger.links || []), { targetId: 'door', action: 'activate' }] })}
+                      className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" /> Add link
+                    </button>
+                  </div>
+                  {(selectedTrigger.links || []).length === 0 && (
+                    <p className="text-[10px] text-zinc-600">One trigger can drive several objects at once. Add links to fire more actions.</p>
+                  )}
+                  {(selectedTrigger.links || []).map((link, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-1.5 items-end border-t border-zinc-900 pt-2 first:border-t-0 first:pt-0">
+                      <SelectField
+                        label="Does"
+                        value={link.action}
+                        options={ACTION_OPTIONS.filter((o) => o.value !== 'none') as Array<{ value: TriggerZone['action']; label: string }>}
+                        onChange={(action) => updateSelectedTrigger({ links: (selectedTrigger.links || []).map((l, idx) => idx === i ? { ...l, action } : l) })}
+                      />
+                      <SelectField
+                        label="On"
+                        value={link.targetId}
+                        options={[{ value: 'door', label: 'Door' }, ...config.objects.map((o) => ({ value: o.id, label: o.label }))]}
+                        onChange={(targetId) => updateSelectedTrigger({ links: (selectedTrigger.links || []).map((l, idx) => idx === i ? { ...l, targetId } : l) })}
+                      />
+                      <button
+                        onClick={() => updateSelectedTrigger({ links: (selectedTrigger.links || []).filter((_, idx) => idx !== i) })}
+                        className="mb-0.5 p-1.5 rounded bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 cursor-pointer"
+                        title="Remove link"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
                 <div className="grid grid-cols-2 gap-2 items-end">
                   <NumberField label={selectedTrigger.auto ? 'Timer (s from start)' : 'Fire delay (s)'} value={selectedTrigger.delay || 0} min={0} max={20} step={0.1} onChange={(delay) => updateSelectedTrigger({ delay })} />
                   <label className="flex items-center gap-2 text-zinc-400 pb-2">

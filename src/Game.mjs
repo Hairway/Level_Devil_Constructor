@@ -2,7 +2,7 @@ import * as IMPION from "#impion";
 import {
 	VIEW_W, VIEW_H, GROUND_Y, BAND_TOP, PLAYER_H, PLAYER_W, DOOR_W, DOOR_H, DOOR_CY,
 	COL_INK, DEFAULT_BG, DEFAULT_GROUND,
-	hx, lightenNum, roleOf, motionOf, isBottomAnchored, objectLocalRect, rectsOverlap, clamp,
+	hx, lightenNum, roleOf, isLethal, motionOf, isBottomAnchored, objectLocalRect, rectsOverlap, clamp,
 } from "./LevelConfig.mjs";
 import levelJson from "./level.json"; // level authored by the constructor (source of truth)
 
@@ -246,12 +246,23 @@ export default class Game extends IMPION.ComponentEmpty {
 			if (txt) {
 				const label = new IMPION.Text2dBase({
 					text: txt.toUpperCase(),
-					style: { fontFamily: "Arial", fontSize: Math.max(9, Math.min(15, h - 8)), fontWeight: "900", fill: o.textColor ? hx(o.textColor, 0x231708) : 0x231708 },
+					style: { fontFamily: o.fontFamily || "Arial", fontSize: Math.max(9, Math.min(15, h - 8)), fontWeight: "900", fill: o.textColor ? hx(o.textColor, 0x231708) : 0x231708 },
 				});
 				label.anchor.set(0.5);
 				box.addChild(label);
 			}
 			return box;
+		}
+
+		// free text block: just the text, no panel (full behaviors via motion/action/appear)
+		if (o.type === "text") {
+			const txt = o.text ?? o.label ?? "";
+			const label = new IMPION.Text2dBase({
+				text: txt,
+				style: { fontFamily: o.fontFamily || "Arial", fontSize: o.fontSize || Math.max(10, h), fontWeight: "700", fill: o.textColor ? hx(o.textColor, 0xffffff) : (col ?? 0xffffff), align: "center" },
+			});
+			label.anchor.set(0.5);
+			return label;
 		}
 
 		// real Level Devil sprites for spike/saw when available
@@ -343,7 +354,13 @@ export default class Game extends IMPION.ComponentEmpty {
 			const g = this.#sprites.get(o.id);
 			if (!g) continue;
 			const rt = this.#runtime.get(o.id);
-			if (rt) g.position.set(rt.x, rt.y);
+			if (rt) {
+				// track whether it moved since last frame (for deadly-while-moving)
+				rt.moving = Math.abs(rt.x - (rt.lastX ?? rt.x)) > 0.05 || Math.abs(rt.y - (rt.lastY ?? rt.y)) > 0.05;
+				rt.lastX = rt.x; rt.lastY = rt.y;
+				g.position.set(rt.x, rt.y);
+				if (o.spin) g.rotation = ((o.rotation || 0) * Math.PI / 180) + (rt.spinAngle || 0);
+			}
 			const active = this.#isActive(o);
 			const appeared = rt ? rt.since >= (o.appearDelay || 0) : true;
 			g.visible = active && appeared;
@@ -394,6 +411,12 @@ export default class Game extends IMPION.ComponentEmpty {
 		if (o && !this.#runtime.has(id)) this.#runtime.set(id, { x: o.x, y: o.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 });
 	}
 
+	// fire a trigger's primary action plus any extra links
+	#fireTrigger(t) {
+		this.#runAction(t.action, t.targetId);
+		for (const l of (t.links || [])) this.#runAction(l.action, l.targetId);
+	}
+
 	#runAction(kind, targetId) {
 		if (kind === "none") return;
 		if (kind === "startDoorChase") { this.#door.triggered = true; this.#door.armed = true; this.#drawDoor(); return; }
@@ -406,7 +429,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			const chained = (this.#config.triggers || []).find((t) => t.id === targetId);
 			if (chained && !this.#firedIds.has(chained.id)) {
 				this.#firedIds.add(chained.id);
-				this.#runAction(chained.action, chained.targetId);
+				this.#fireTrigger(chained);
 			}
 			return;
 		}
@@ -548,6 +571,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			if (!rt) continue;
 			const before = rt.since;
 			rt.since += (1 / 60) * dt;
+			if (o.spin) rt.spinAngle = (rt.spinAngle || 0) + (o.spin * Math.PI / 180) * dt; // continuous spin (e.g. saws)
 			if ((o.appearDelay || 0) > 0 && before < o.appearDelay && rt.since >= o.appearDelay) dirty = true;
 			if (o.type === "pit" && this.#splitIds.has(o.id) && rt.split < 1) { rt.split = Math.min(1, rt.split + (1 / 24) * dt); this.#drawFloor(); }
 
@@ -601,7 +625,7 @@ export default class Game extends IMPION.ComponentEmpty {
 				this.#trigTimers.set(t.id, tt);
 				if (!this.#firedIds.has(t.id) && tt >= delay) {
 					this.#firedIds.add(t.id);
-					this.#runAction(t.action, t.targetId);
+					this.#fireTrigger(t);
 					if (t.repeat) { this.#firedIds.delete(t.id); this.#trigTimers.set(t.id, 0); }
 				}
 				continue;
@@ -612,7 +636,7 @@ export default class Game extends IMPION.ComponentEmpty {
 				this.#trigTimers.set(t.id, tt);
 				if (!this.#firedIds.has(t.id) && tt >= delay) {
 					this.#firedIds.add(t.id);
-					this.#runAction(t.action, t.targetId);
+					this.#fireTrigger(t);
 				}
 			} else {
 				this.#trigTimers.set(t.id, 0);
@@ -632,7 +656,7 @@ export default class Game extends IMPION.ComponentEmpty {
 				const key = "obj:" + o.id;
 				if (!this.#firedIds.has(key)) { this.#firedIds.add(key); this.#runAction(o.action.kind, o.action.targetId); }
 			}
-			if (roleOf(o) !== "hazard") continue;
+			if (!isLethal(o, rt ? rt.moving : false)) continue;
 			const cx = rt ? rt.x : o.x;
 			if (o.type === "spike") {
 				const oy = rt ? rt.y : o.y;
