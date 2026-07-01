@@ -44,6 +44,7 @@ import {
   Sliders,
   Terminal,
   Trash2,
+  Upload,
 } from 'lucide-react';
 
 const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
@@ -559,6 +560,23 @@ export default function App() {
     updateActiveConfig(next);
   };
 
+  // Read an uploaded image as a data URL and store it as the object's sprite (embeds into export).
+  const handleSpriteUpload = (e: { target: HTMLInputElement }) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 1_500_000) {
+      addLog('SYSTEM', 'Image too large (max ~1.5MB) for embedding');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateSelectedObject({ spriteUrl: String(reader.result) });
+      addLog('OBJECT', `Loaded custom sprite "${file.name}"`);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const updateSelectedTrigger = (patch: Partial<TriggerZone>) => {
     if (!selectedEntityId) return;
     const next = cloneConfig(config);
@@ -1048,14 +1066,33 @@ export default function App() {
                     onReset={selectedObject.color ? () => updateSelectedObject({ color: undefined }) : undefined}
                   />
                   <label className="block">
-                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Custom sprite URL</span>
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Custom sprite</span>
                     <input
-                      value={selectedObject.spriteUrl || ''}
-                      placeholder="https://... or Drive image link"
+                      value={selectedObject.spriteUrl && selectedObject.spriteUrl.startsWith('data:') ? '(uploaded image)' : (selectedObject.spriteUrl || '')}
+                      placeholder="Paste image URL, or upload below"
+                      readOnly={!!selectedObject.spriteUrl && selectedObject.spriteUrl.startsWith('data:')}
                       onChange={(e) => updateSelectedObject({ spriteUrl: e.target.value || undefined })}
                       className={`${inputClass} text-[10px]`}
                     />
                   </label>
+                  <div className="flex items-center gap-2">
+                    <label className="flex-1 py-1.5 px-2 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" />
+                      Upload image
+                      <input type="file" accept="image/*" className="hidden" onChange={handleSpriteUpload} />
+                    </label>
+                    {selectedObject.spriteUrl && (
+                      <>
+                        <img src={selectedObject.spriteUrl} alt="sprite" className="w-8 h-8 object-contain bg-black/40 border border-zinc-800 rounded" style={{ imageRendering: 'pixelated' }} />
+                        <button
+                          onClick={() => updateSelectedObject({ spriteUrl: undefined })}
+                          className="py-1.5 px-2 bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 rounded text-[11px] cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {selObjMotion && (
