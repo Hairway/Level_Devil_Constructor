@@ -547,8 +547,17 @@ export default function App() {
   const deleteSelected = () => {
     if (!selectedEntityId || selectedEntityId === 'playerSpawn' || selectedEntityId === 'door') return;
     const next = cloneConfig(config);
-    next.objects = next.objects.filter((object) => object.id !== selectedEntityId);
-    next.triggers = next.triggers.filter((trigger) => trigger.id !== selectedEntityId && trigger.targetId !== selectedEntityId);
+    const isTrigger = next.triggers.some((trigger) => trigger.id === selectedEntityId);
+    if (isTrigger) {
+      // Delete ONLY the selected trigger.
+      next.triggers = next.triggers.filter((trigger) => trigger.id !== selectedEntityId);
+    } else {
+      // Delete only the selected object; keep triggers but retarget any that pointed at it.
+      next.objects = next.objects.filter((object) => object.id !== selectedEntityId);
+      next.triggers = next.triggers.map((trigger) =>
+        trigger.targetId === selectedEntityId ? { ...trigger, targetId: 'door' } : trigger,
+      );
+    }
     updateActiveConfig(next);
     setSelectedEntityId(null);
   };
@@ -557,6 +566,15 @@ export default function App() {
     if (!selectedEntityId) return;
     const next = cloneConfig(config);
     next.objects = next.objects.map((object) => object.id === selectedEntityId ? { ...object, ...patch } : object);
+    updateActiveConfig(next);
+  };
+
+  // Edit the motion of a specific object (used by the trigger panel to set what the target does).
+  const updateObjectMotionById = (objId: string, patch: Partial<NonNullable<LevelObject['motion']>>) => {
+    const next = cloneConfig(config);
+    next.objects = next.objects.map((object) =>
+      object.id === objId ? { ...object, motion: { ...objectMotion(object), ...patch } } : object,
+    );
     updateActiveConfig(next);
   };
 
@@ -1234,6 +1252,59 @@ export default function App() {
                     onChange={(targetId) => updateSelectedTrigger({ targetId })}
                   />
                 )}
+                {(() => {
+                  // "Full engine" trigger control: pick what the target OBJECT does when fired.
+                  if (selectedTrigger.action !== 'activate') return null;
+                  const target = config.objects.find((o) => o.id === selectedTrigger.targetId);
+                  if (!target) return null;
+                  const m = objectMotion(target);
+                  const behavior = m.mode === 'chase' ? 'chase' : m.mode === 'fall' ? 'fall' : m.mode === 'linear' ? 'move' : 'activate';
+                  const setBehavior = (b: string) => {
+                    if (b === 'activate') updateObjectMotionById(target.id, { mode: 'static', startOn: 'trigger' });
+                    else if (b === 'chase') updateObjectMotionById(target.id, { mode: 'chase', target: 'player', startOn: 'trigger' });
+                    else if (b === 'fall') updateObjectMotionById(target.id, { mode: 'fall', startOn: 'trigger' });
+                    else updateObjectMotionById(target.id, { mode: 'linear', startOn: 'trigger' });
+                  };
+                  const dirValue = m.dirY < 0 ? 'up' : m.dirY > 0 ? 'down' : m.dirX < 0 ? 'left' : 'right';
+                  const setDir = (d: string) => {
+                    const map: Record<string, { dirX: number; dirY: number }> = { right: { dirX: 1, dirY: 0 }, left: { dirX: -1, dirY: 0 }, up: { dirX: 0, dirY: -1 }, down: { dirX: 0, dirY: 1 } };
+                    updateObjectMotionById(target.id, map[d]);
+                  };
+                  return (
+                    <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-2 space-y-2">
+                      <div className="text-[10px] uppercase tracking-wider text-amber-500/80">When triggered, target</div>
+                      <SelectField
+                        label={`"${target.label}"`}
+                        value={behavior}
+                        options={[
+                          { value: 'activate', label: 'Just appears / activates' },
+                          { value: 'chase', label: 'Chases the player' },
+                          { value: 'fall', label: 'Falls down' },
+                          { value: 'move', label: 'Moves in a direction' },
+                        ]}
+                        onChange={setBehavior}
+                      />
+                      {behavior !== 'activate' && (
+                        <NumberField label="Speed" value={m.speed} min={0} max={12} step={0.1} onChange={(speed) => updateObjectMotionById(target.id, { speed })} />
+                      )}
+                      {behavior === 'move' && (
+                        <>
+                          <SelectField
+                            label="Direction"
+                            value={dirValue}
+                            options={[{ value: 'right', label: '→ Right' }, { value: 'left', label: '← Left' }, { value: 'up', label: '↑ Up' }, { value: 'down', label: '↓ Down' }]}
+                            onChange={setDir}
+                          />
+                          <NumberField label="Distance (0 = ∞)" value={m.distance} min={0} max={800} step={5} onChange={(distance) => updateObjectMotionById(target.id, { distance })} />
+                          <label className="flex items-center gap-2 text-zinc-400">
+                            <input type="checkbox" checked={m.loop} onChange={(e) => updateObjectMotionById(target.id, { loop: e.target.checked })} />
+                            Loop back and forth (cyclic)
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Linked target</div>
                   <button

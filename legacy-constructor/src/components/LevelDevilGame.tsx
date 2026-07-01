@@ -85,6 +85,11 @@ export default function LevelDevilGame({
   const drawFloorRef = useRef<(collapsed: boolean) => void>(() => {});
   const runActionRef = useRef<(kind: ObjectActionKind, targetId: string, label: string) => void>(() => {});
 
+  // The PIXI setup effect runs once (deps [orientation]) and closes over these callbacks, so keep
+  // the latest versions in a ref — otherwise edits always target the run active at mount (run 1).
+  const cbRef = useRef({ onConfigChange, onSelectEntity, onLogEvent, onRunComplete, onDeath });
+  cbRef.current = { onConfigChange, onSelectEntity, onLogEvent, onRunComplete, onDeath };
+
   const [isMuted, setIsMuted] = useState(false);
   const [isSkipVisible, setIsSkipVisible] = useState(false);
   const [isCtaVisible, setIsCtaVisible] = useState(false);
@@ -296,6 +301,12 @@ export default function LevelDevilGame({
 
   useEffect(() => {
     if (!containerRef.current) return;
+    // Always call the latest props (this effect only runs once) so edits hit the active run.
+    const onConfigChange = (c: GameConfig) => cbRef.current.onConfigChange(c);
+    const onSelectEntity = (id: string | null) => cbRef.current.onSelectEntity(id);
+    const onLogEvent = (t: string, m: string) => cbRef.current.onLogEvent(t, m);
+    const onRunComplete = (n: ActiveRun) => cbRef.current.onRunComplete(n);
+    const onDeath = () => cbRef.current.onDeath();
     let alive = true;
     let dragging:
       | { kind: 'object'; id: string; dx: number; dy: number; display: PIXI.DisplayObject }
@@ -992,7 +1003,10 @@ export default function LevelDevilGame({
         if (nearestObject) {
           const next = cloneConfig(s.config);
           next.objects = next.objects.filter((object) => object.id !== nearestObject.id);
-          next.triggers = next.triggers.filter((trigger) => trigger.targetId !== nearestObject.id);
+          // keep triggers; retarget any that pointed at the erased object
+          next.triggers = next.triggers.map((trigger) =>
+            trigger.targetId === nearestObject.id ? { ...trigger, targetId: 'door' } : trigger,
+          );
           onConfigChange(next);
           onLogEvent('OBJECT_DELETE', `Deleted ${nearestObject.label}`);
         } else if (nearestTrigger) {
@@ -1005,7 +1019,7 @@ export default function LevelDevilGame({
       }
 
       const next = cloneConfig(s.config);
-      const id = `${s.currentTool}-${Date.now().toString(36)}`;
+      const id = `${s.currentTool}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       if (s.currentTool === 'trigger') {
         // link the new trigger to the nearest object by default (or the door if none)
         const target = [...next.objects].sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x))[0];
