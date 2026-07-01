@@ -1646,6 +1646,14 @@ export default function App() {
                   <input type="checkbox" checked={!!selectedTrigger.auto} onChange={(e) => updateSelectedTrigger({ auto: e.target.checked })} />
                   Auto-fire on timer (no touch needed)
                 </label>
+                <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Force zone (conveyor / wind)</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <NumberField label="Push X (px/frame)" value={selectedTrigger.pushX || 0} min={-10} max={10} step={0.5} onChange={(pushX) => updateSelectedTrigger({ pushX: pushX || undefined })} />
+                    <NumberField label="Push Y (px/frame)" value={selectedTrigger.pushY || 0} min={-10} max={10} step={0.5} onChange={(pushY) => updateSelectedTrigger({ pushY: pushY || undefined })} />
+                  </div>
+                  <p className="text-[10px] text-zinc-600">Pushes the player while they stand in this zone. +X right, −X left, −Y up (updraft).</p>
+                </div>
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Linked target</div>
                   <button

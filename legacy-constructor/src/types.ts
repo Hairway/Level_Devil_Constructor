@@ -93,6 +93,8 @@ export interface TriggerZone {
   delay?: number; // seconds after the player enters (or run start, if auto) before firing
   repeat?: boolean; // re-fire every time the player enters (default: fire once)
   auto?: boolean; // fire automatically on a timer (delay from run start), no touch needed
+  pushX?: number; // force zone: horizontal px/frame applied to the player while inside (conveyor)
+  pushY?: number; // force zone: vertical px/frame applied to the player while inside (wind/updraft)
 }
 
 export interface GameConfig {

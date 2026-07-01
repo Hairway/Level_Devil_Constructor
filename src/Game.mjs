@@ -561,6 +561,16 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#vy += s.gravity * dt;
 		px = clamp(px + this.#vx * dt, PLAYER_W, VIEW_W - PLAYER_W);
 		py += this.#vy * dt;
+
+		//- force zones (conveyors / wind): push the player while inside
+		for (const t of s.triggers) {
+			if (!t.pushX && !t.pushY) continue;
+			if (rectsOverlap(px - PLAYER_W / 2, py - PLAYER_H, PLAYER_W, PLAYER_H, t.x, t.y, t.width, t.height)) {
+				px += (t.pushX || 0) * dt;
+				py += (t.pushY || 0) * dt;
+			}
+		}
+		px = clamp(px, PLAYER_W, VIEW_W - PLAYER_W);
 		if (py - PLAYER_H < BAND_TOP) { py = BAND_TOP + PLAYER_H; if (this.#vy < 0) this.#vy = 0; }
 
 		//- open pit test
