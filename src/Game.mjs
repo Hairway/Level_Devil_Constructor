@@ -247,17 +247,35 @@ export default class Game extends IMPION.ComponentEmpty {
 		} else if (o.type === "pit") {
 			g.rect(-w / 2, -h, w, h).fill({ color: col ?? 0x161616, alpha: 0.9 });
 		} else if (o.type === "fallingBlock") {
+			// wooden crate: body + diagonal cross-planks + outline
 			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0x5b3410 });
+			g.rect(-w / 2, -h / 2, w, 5).fill({ color: 0x7a4a17, alpha: 0.8 });
+			g.moveTo(-w / 2, -h / 2).lineTo(w / 2, h / 2).moveTo(w / 2, -h / 2).lineTo(-w / 2, h / 2)
+				.stroke({ color: COL_INK, width: 2, alpha: 0.4 });
 			g.rect(-w / 2, -h / 2, w, h).stroke({ color: COL_INK, width: 3, alpha: 0.85 });
 		} else if (o.type === "crusher") {
+			// heavy block with red spikes along the bottom
 			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0x3b2611 });
 			g.rect(-w / 2, -h / 2, w, h).stroke({ color: 0x8a1f10, width: 3 });
+			const teeth = Math.max(3, Math.round(w / 14));
+			const tw = w / teeth;
+			for (let i = 0; i < teeth; i++) {
+				const x = -w / 2 + i * tw;
+				g.poly([x, h / 2, x + tw / 2, h / 2 + 10, x + tw, h / 2]).fill({ color: 0x8a1f10 });
+			}
 		} else if (o.type === "laser") {
 			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0xfef08a, alpha: 0.6 });
 			g.rect(-w / 2, -2, w, 4).fill({ color: col ?? 0xef4444 }); // bright core beam
 		} else if (o.type === "platform") {
+			// wooden platform: body + top highlight + plank seams
 			g.rect(-w / 2, -h / 2, w, h).fill({ color: col ?? 0xb37111 });
 			g.rect(-w / 2, -h / 2, w, 4).fill({ color: 0xeab451, alpha: 0.85 });
+			const planks = Math.max(2, Math.round(w / 30));
+			for (let i = 1; i < planks; i++) {
+				const x = -w / 2 + (w / planks) * i;
+				g.moveTo(x, -h / 2 + 4).lineTo(x, h / 2).stroke({ color: COL_INK, width: 1, alpha: 0.3 });
+			}
+			g.rect(-w / 2, -h / 2, w, h).stroke({ color: COL_INK, width: 2, alpha: 0.45 });
 		} else { // button
 			g.roundRect(-w / 2, -h / 2, w, h, 6).fill({ color: col ?? 0xffc164 });
 		}
