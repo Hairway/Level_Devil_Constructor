@@ -1,0 +1,39 @@
+{
+	"id": "level-devil-play001-01",
+	"name": "Level_Devil_play001_01",
+	"runs": [
+		{
+			"name": "Run 1 - Door Chase",
+			"config": {
+				"playerSpeed": 3.5, "jumpForce": 11, "gravity": 0.7,
+				"doorBaseSpeed": 2.5, "doorAccelSpeed": 6, "doorHoming": 0.25, "triggerDistance": 260, "skipButtonDelay": 1.8,
+				"playerSpawnX": 90, "doorSpawnX": 720, "bgColor": "#c77b00", "groundColor": "#e2a33c",
+				"objects": [
+					{ "id": "spike-a", "type": "spike", "x": 300, "y": 281, "width": 30, "height": 22, "label": "Spike", "initiallyActive": true },
+					{ "id": "spike-b", "type": "spike", "x": 420, "y": 281, "width": 30, "height": 22, "label": "Spike", "initiallyActive": true }
+				],
+				"triggers": [
+					{ "id": "door-trigger", "x": 500, "y": 170, "width": 80, "height": 110, "targetId": "door", "action": "startDoorChase", "label": "Door chase" }
+				]
+			}
+		},
+		{
+			"name": "Run 2 - Traps",
+			"config": {
+				"playerSpeed": 3.5, "jumpForce": 11, "gravity": 0.7,
+				"doorBaseSpeed": 2.5, "doorAccelSpeed": 6, "doorHoming": 0.25, "triggerDistance": 260, "skipButtonDelay": 1.8,
+				"playerSpawnX": 90, "doorSpawnX": 720, "bgColor": "#1f2937", "groundColor": "#4b5563",
+				"objects": [
+					{ "id": "spike-1", "type": "spike", "x": 260, "y": 281, "width": 30, "height": 22, "label": "Spike", "initiallyActive": true, "role": "hazard" },
+					{ "id": "pit1", "type": "pit", "x": 430, "y": 281, "width": 110, "height": 42, "label": "Pit", "initiallyActive": false, "role": "pit" },
+					{ "id": "saw1", "type": "saw", "x": 640, "y": 150, "width": 40, "height": 40, "label": "Chasing saw", "initiallyActive": false, "role": "hazard", "motion": { "mode": "chase", "target": "player", "speed": 2.2, "dirX": 1, "dirY": 0, "distance": 0, "loop": false, "startOn": "trigger", "delay": 0 } },
+					{ "id": "plat1", "type": "platform", "x": 560, "y": 120, "width": 90, "height": 18, "label": "Platform", "initiallyActive": true, "role": "solid" },
+					{ "id": "btn1", "type": "button", "x": 150, "y": 150, "width": 66, "height": 30, "label": "Skip", "initiallyActive": true, "role": "decor", "clickable": true, "appearDelay": 1.0, "action": { "kind": "splitFloor", "targetId": "pit1" } }
+				],
+				"triggers": [
+					{ "id": "tz1", "x": 540, "y": 170, "width": 60, "height": 110, "targetId": "saw1", "action": "activate", "label": "Wake saw" }
+				]
+			}
+		}
+	]
+}
