@@ -30,6 +30,7 @@ export default class Game extends IMPION.ComponentEmpty {
 
 	#activeIds = new Set();
 	#firedIds = new Set();
+	#trigTimers = new Map();
 	#motionRunIds = new Set();
 	#splitIds = new Set();
 	#runtime = new Map();
@@ -193,6 +194,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#door = { x: s.doorSpawnX, y: GROUND_Y, armed: false, triggered: this.#runIndex === 2, timer: 0, vx: 0, vy: 0 };
 		this.#activeIds = new Set(s.objects.filter((o) => o.initiallyActive).map((o) => o.id));
 		this.#firedIds = new Set();
+		this.#trigTimers = new Map();
 		this.#splitIds = new Set();
 		this.#motionRunIds = new Set(s.objects.filter((o) => motionOf(o).startOn === "spawn").map((o) => o.id));
 		this.#runtime = new Map(s.objects.map((o) => [o.id, { x: o.x, y: o.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 }]));
@@ -211,19 +213,32 @@ export default class Game extends IMPION.ComponentEmpty {
 		const col = o.color ? hx(o.color, null) : null;
 		const w = o.width, h = o.height;
 
-		// button: rounded panel with its label (e.g. "Skip"), like the real game
-		if (!o.spriteUrl && o.type === "button") {
+		// button: optional texture (or a panel) with custom text on top
+		if (o.type === "button") {
 			const box = new IMPION.Group2d();
-			const bg = new IMPION.Graphics2d();
-			bg.roundRect(-w / 2, -h / 2, w, h, 6).fill({ color: col ?? 0xffc164 });
-			bg.roundRect(-w / 2, h / 2 - 5, w, 5, 3).fill({ color: 0xb37111 });
-			box.addChild(bg);
-			const label = new IMPION.Text2dBase({
-				text: (o.label || "").toUpperCase(),
-				style: { fontFamily: "Arial", fontSize: Math.max(9, Math.min(15, h - 8)), fontWeight: "900", fill: 0x231708 },
-			});
-			label.anchor.set(0.5);
-			box.addChild(label);
+			if (o.spriteUrl) {
+				try {
+					const sp = IMPION.Sprite2d.from(o.spriteUrl);
+					sp.anchor.set(0.5); sp.width = w; sp.height = h;
+					if (col != null) sp.tint = col;
+					box.addChild(sp);
+				} catch (e) { /* fall back to panel below */ }
+			}
+			if (!o.spriteUrl) {
+				const bg = new IMPION.Graphics2d();
+				bg.roundRect(-w / 2, -h / 2, w, h, 6).fill({ color: col ?? 0xffc164 });
+				bg.roundRect(-w / 2, h / 2 - 5, w, 5, 3).fill({ color: 0xb37111 });
+				box.addChild(bg);
+			}
+			const txt = o.text ?? o.label ?? "";
+			if (txt) {
+				const label = new IMPION.Text2dBase({
+					text: txt.toUpperCase(),
+					style: { fontFamily: "Arial", fontSize: Math.max(9, Math.min(15, h - 8)), fontWeight: "900", fill: o.textColor ? hx(o.textColor, 0x231708) : 0x231708 },
+				});
+				label.anchor.set(0.5);
+				box.addChild(label);
+			}
 			return box;
 		}
 
@@ -501,6 +516,19 @@ export default class Game extends IMPION.ComponentEmpty {
 			rt.since += (1 / 60) * dt;
 			if ((o.appearDelay || 0) > 0 && before < o.appearDelay && rt.since >= o.appearDelay) dirty = true;
 			if (o.type === "pit" && this.#splitIds.has(o.id) && rt.split < 1) { rt.split = Math.min(1, rt.split + (1 / 24) * dt); this.#drawFloor(); }
+
+			// attached objects follow their parent (e.g. spikes riding the door); no self-motion
+			if (o.attachTo) {
+				let baseX, baseY = 0, curX = 0, curY = 0;
+				if (o.attachTo === "door") { baseX = s.doorSpawnX; baseY = GROUND_Y; curX = this.#door.x; curY = this.#door.y; }
+				else if (o.attachTo === "player") { baseX = s.playerSpawnX; baseY = GROUND_Y; curX = px; curY = py; }
+				else {
+					const po = s.objects.find((x) => x.id === o.attachTo); const prt = this.#runtime.get(o.attachTo);
+					if (po) { baseX = po.x; baseY = po.y; curX = prt ? prt.x : po.x; curY = prt ? prt.y : po.y; }
+				}
+				if (baseX !== undefined) { rt.x = curX + (o.x - baseX); rt.y = curY + (o.y - baseY); continue; }
+			}
+
 			const m = motionOf(o);
 			if (!this.#motionRunIds.has(o.id) || rt.since < m.delay) continue;
 			if (m.mode === "fall") {
@@ -532,10 +560,18 @@ export default class Game extends IMPION.ComponentEmpty {
 
 		const pRect = { x: px - PLAYER_W / 2, y: py - PLAYER_H, w: PLAYER_W, h: PLAYER_H };
 		for (const t of s.triggers) {
-			if (this.#firedIds.has(t.id)) continue;
-			if (rectsOverlap(pRect.x, pRect.y, pRect.w, pRect.h, t.x, t.y, t.width, t.height)) {
-				this.#firedIds.add(t.id);
-				this.#runAction(t.action, t.targetId);
+			const over = rectsOverlap(pRect.x, pRect.y, pRect.w, pRect.h, t.x, t.y, t.width, t.height);
+			const delay = t.delay || 0;
+			if (over) {
+				const tt = (this.#trigTimers.get(t.id) || 0) + (1 / 60) * dt;
+				this.#trigTimers.set(t.id, tt);
+				if (!this.#firedIds.has(t.id) && tt >= delay) {
+					this.#firedIds.add(t.id);
+					this.#runAction(t.action, t.targetId);
+				}
+			} else {
+				this.#trigTimers.set(t.id, 0);
+				if (t.repeat) this.#firedIds.delete(t.id); // re-fire on re-entry
 			}
 		}
 

@@ -58,6 +58,9 @@ export interface LevelObject {
   action?: ObjectAction; // fired on tap (clickable) or on player touch
   appearDelay?: number; // seconds before the object becomes visible/active in play
   spriteUrl?: string; // custom image for loaded/imported objects
+  attachTo?: string; // follow another entity: '' | 'door' | 'player' | objectId (moves with it)
+  text?: string; // text drawn on the object (buttons); falls back to label
+  textColor?: string; // hex color for the on-object text
 }
 
 export interface TriggerZone {
@@ -69,6 +72,8 @@ export interface TriggerZone {
   targetId: string;
   action: TriggerAction;
   label: string;
+  delay?: number; // seconds after the player enters before the action fires
+  repeat?: boolean; // re-fire every time the player enters (default: fire once)
 }
 
 export interface GameConfig {

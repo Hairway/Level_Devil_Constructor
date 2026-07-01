@@ -1098,6 +1098,17 @@ export default function App() {
                     onChange={(role) => updateSelectedObject({ role: role as CollisionRole })}
                   />
                   <NumberField label="Appear delay (s)" value={selectedObject.appearDelay || 0} min={0} max={10} step={0.1} onChange={(appearDelay) => updateSelectedObject({ appearDelay })} />
+                  <SelectField
+                    label="Attach to (moves with)"
+                    value={selectedObject.attachTo || ''}
+                    options={[
+                      { value: '', label: 'Nothing' },
+                      { value: 'door', label: 'Door (e.g. spikes on door)' },
+                      { value: 'player', label: 'Player' },
+                      ...config.objects.filter((o) => o.id !== selectedEntityId).map((o) => ({ value: o.id, label: o.label })),
+                    ]}
+                    onChange={(attachTo) => updateSelectedObject({ attachTo: attachTo || undefined })}
+                  />
                   <ColorField
                     label="Color"
                     value={selectedObject.color || '#ffffff'}
@@ -1132,6 +1143,25 @@ export default function App() {
                       </>
                     )}
                   </div>
+                  {selectedObject.type === 'button' && (
+                    <>
+                      <label className="block">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Button text</span>
+                        <input
+                          value={selectedObject.text ?? selectedObject.label ?? ''}
+                          placeholder="e.g. SKIP"
+                          onChange={(e) => updateSelectedObject({ text: e.target.value })}
+                          className={`${inputClass} text-[11px]`}
+                        />
+                      </label>
+                      <ColorField
+                        label="Text color"
+                        value={selectedObject.textColor || '#231708'}
+                        onChange={(textColor) => updateSelectedObject({ textColor })}
+                        onReset={selectedObject.textColor ? () => updateSelectedObject({ textColor: undefined }) : undefined}
+                      />
+                    </>
+                  )}
                 </div>
 
                 {selObjMotion && (
@@ -1305,6 +1335,13 @@ export default function App() {
                     </div>
                   );
                 })()}
+                <div className="grid grid-cols-2 gap-2 items-end">
+                  <NumberField label="Fire delay (s)" value={selectedTrigger.delay || 0} min={0} max={10} step={0.1} onChange={(delay) => updateSelectedTrigger({ delay })} />
+                  <label className="flex items-center gap-2 text-zinc-400 pb-2">
+                    <input type="checkbox" checked={!!selectedTrigger.repeat} onChange={(e) => updateSelectedTrigger({ repeat: e.target.checked })} />
+                    Repeat
+                  </label>
+                </div>
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Linked target</div>
                   <button
