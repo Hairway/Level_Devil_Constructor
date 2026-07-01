@@ -653,6 +653,27 @@ export default function App() {
     setTimeout(() => setCopied(null), 1600);
   };
 
+  // Write the active project straight into the IMPION template's src/level.json (dev server only).
+  const exportToTemplate = async () => {
+    try {
+      const res = await fetch('/api/export-level', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(activeProject),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCopied('template');
+        addLog('EXPORT', `Wrote level to template (${data.path || 'src/level.json'}) — rebuild the template`);
+        setTimeout(() => setCopied(null), 1600);
+      } else {
+        addLog('SYSTEM', `Export failed: ${data.error || res.status}`);
+      }
+    } catch (e) {
+      addLog('SYSTEM', 'Export failed (is the constructor dev server running?)');
+    }
+  };
+
   const standalonePlayable = useMemo(() => generateStandalonePlayable(activeProject), [activeProject]);
   const selectedObject = config.objects.find((object) => object.id === selectedEntityId);
   const selectedTrigger = config.triggers.find((trigger) => trigger.id === selectedEntityId);
@@ -1305,6 +1326,14 @@ export default function App() {
                 HTML
               </a>
             </div>
+            <button
+              onClick={exportToTemplate}
+              className="w-full mt-2 py-2 px-3 bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Write this project into the IMPION template's src/level.json (dev server only)"
+            >
+              {copied === 'template' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FileCode2 className="w-3.5 h-3.5" />}
+              Export to IMPION template
+            </button>
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
