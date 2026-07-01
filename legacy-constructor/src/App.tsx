@@ -17,7 +17,6 @@ import LevelDevilGame from './components/LevelDevilGame';
 import ErrorBoundary from './components/ErrorBoundary';
 import { DEFAULT_BG, DEFAULT_GROUND, defaultAction, defaultMotion, objectCatalog, objectMotion, objectPreset } from './objectModel';
 import { generateStandalonePlayable } from './exportPlayable';
-import * as A from './assets';
 
 // Lazy so Firebase/Drive stays out of the initial bundle and only loads when opened.
 const GoogleDriveSync = lazy(() => import('./components/GoogleDriveSync'));
@@ -89,26 +88,6 @@ const configFrom = (objects: LevelObject[], triggers: TriggerZone[]): GameConfig
   spikes: objects.filter((object) => object.type === 'spike').map((object) => object.x),
   objects,
   triggers,
-  tutorial: {
-    enabled: true,
-    targetId: 'rightControl',
-    text: 'Tap to move',
-    startDelay: 0.9,
-    repeatEvery: 1.2,
-    duration: 4,
-    endOn: 'anyInput',
-    handUrl: A.tutorialHand,
-  },
-  assetKit: {
-    name: 'Level Devil + Remix kit',
-    tileTexture: A.tileBlue,
-    tileColor: '#ffffff',
-    trailTexture: A.trailTexture,
-    trailColor: '#38bdf8',
-    backgroundImage: A.ctaBackground,
-    musicUrl: A.soundBg,
-    tapSoundUrl: A.soundTap0,
-  },
 });
 
 const createDefaultConfig = (): GameConfig => configFrom(baseObjects(), baseTriggers());
@@ -158,8 +137,6 @@ const cloneConfig = (config: GameConfig): GameConfig => ({
   objects: config.objects.map((object) => ({ ...object })),
   triggers: config.triggers.map((trigger) => ({ ...trigger })),
   triggerLayers: config.triggerLayers ? config.triggerLayers.map((layer) => ({ ...layer })) : undefined,
-  tutorial: config.tutorial ? { ...config.tutorial } : undefined,
-  assetKit: config.assetKit ? { ...config.assetKit } : undefined,
 });
 
 const normalizeConfig = (raw: Partial<GameConfig>): GameConfig => {
@@ -183,8 +160,6 @@ const normalizeConfig = (raw: Partial<GameConfig>): GameConfig => {
     spikes: objects.filter((object) => object.type === 'spike').map((object) => object.x),
     objects,
     triggers: Array.isArray(raw.triggers) ? raw.triggers.map((trigger) => ({ ...trigger })) : defaults.triggers,
-    tutorial: raw.tutorial ? { ...raw.tutorial } : defaults.tutorial,
-    assetKit: raw.assetKit ? { ...raw.assetKit } : defaults.assetKit,
   };
 };
 
@@ -300,52 +275,6 @@ const SelectField = <T extends string>({ label, value, options, onChange }: {
 
 // Level Devil–flavored preset swatches for quick recoloring.
 const PALETTE = ['#c77b00', '#e2a33c', '#231708', '#8a1f10', '#ef4444', '#f59e0b', '#fef08a', '#10b981', '#38bdf8', '#a855f7', '#ffffff', '#000000'];
-const BUILDER_STEPS = [
-  { id: 0, label: 'Brief' },
-  { id: 1, label: 'Image' },
-  { id: 2, label: 'Assets' },
-  { id: 3, label: 'Edit' },
-  { id: 4, label: 'Export' },
-] as const;
-type ArrowDirection = 'up' | 'right' | 'down' | 'left';
-type ArrowCell = { col: number; row: number; x: number; y: number; direction: ArrowDirection; color: string; alpha: number };
-
-const ASSET_LIBRARY = [
-  { id: 'tile-blue', label: 'Blue tile', kind: 'tile', url: A.tileBlue },
-  { id: 'tile-green', label: 'Green tile', kind: 'tile', url: A.tileGreen },
-  { id: 'tile-pink', label: 'Pink tile', kind: 'tile', url: A.tilePink },
-  { id: 'tile-yellow', label: 'Yellow tile', kind: 'tile', url: A.tileYellow },
-  { id: 'arrow-up', label: 'Arrow up', kind: 'arrow', url: A.remixArrowUp },
-  { id: 'arrow-right', label: 'Arrow right', kind: 'arrow', url: A.remixArrowRight },
-  { id: 'arrow-down', label: 'Arrow down', kind: 'arrow', url: A.remixArrowDown },
-  { id: 'arrow-left', label: 'Arrow left', kind: 'arrow', url: A.remixArrowLeft },
-  { id: 'hand', label: 'Tutorial hand', kind: 'tutorial', url: A.tutorialHand },
-  { id: 'button', label: 'Store button', kind: 'ui', url: A.storeButton },
-  { id: 'trail', label: 'Trail', kind: 'vfx', url: A.trailTexture },
-  { id: 'cta-bg', label: 'CTA bg', kind: 'background', url: A.ctaBackground },
-  { id: 'win-bg', label: 'Win bg', kind: 'background', url: A.winBackground },
-] as const;
-
-const assetUrlToDataUrl = async (url: string): Promise<string> => {
-  const res = await fetch(url);
-  const blob = await res.blob();
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-};
-
-const rgbToHex = (r: number, g: number, b: number) =>
-  `#${[r, g, b].map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`;
-
-const directionVector = (direction: ArrowDirection) => {
-  if (direction === 'left') return { dirX: -1, dirY: 0 };
-  if (direction === 'right') return { dirX: 1, dirY: 0 };
-  if (direction === 'up') return { dirX: 0, dirY: -1 };
-  return { dirX: 0, dirY: 1 };
-};
 
 const ColorField = ({ label, value, onChange, onReset }: {
   label: string;
@@ -472,14 +401,6 @@ export default function App() {
       description: 'Constructor initialized',
     },
   ]);
-  const [builderStep, setBuilderStep] = useState(0);
-  const [briefUrl, setBriefUrl] = useState('');
-  const [briefText, setBriefText] = useState('');
-  const [briefStatus, setBriefStatus] = useState('');
-  const [sourceImagePreview, setSourceImagePreview] = useState('');
-  const [arrowMapText, setArrowMapText] = useState('');
-  const [generatedSummary, setGeneratedSummary] = useState('');
-  const [assetStatus, setAssetStatus] = useState('');
 
   const activeProject = projects[activeProjectIndex] || projects[0];
   const activeRun = activeProject.runs[activeRunIndex] || activeProject.runs[0];
@@ -521,44 +442,6 @@ export default function App() {
     };
     setLogs((prev) => [newEvent, ...prev].slice(0, 100));
   }, []);
-
-  const completeStep = (step: number) => {
-    setBuilderStep((current) => Math.max(current, Math.min(step + 1, BUILDER_STEPS.length - 1)));
-  };
-
-  const importBriefFromUrl = async () => {
-    if (!briefUrl.trim()) return;
-    setBriefStatus('Loading brief...');
-    try {
-      const res = await fetch('/api/import-brief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: briefUrl.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      const text = String(data.text || '').trim();
-      setBriefText(text);
-      const projectName = text.match(/\b(Level[_\s-]?Devil[_\s-]?play\d+_\d+)\b/i)?.[1]?.replace(/\s|-/g, '_');
-      if (projectName) renameActiveProject(projectName);
-      setBriefStatus(`Loaded ${Math.round(text.length / 100) / 10}k chars from ${data.title || 'brief'}`);
-      addLog('BRIEF', `Imported brief from ${briefUrl.trim()}`);
-      completeStep(0);
-    } catch (err) {
-      setBriefStatus(`Import failed: ${err instanceof Error ? err.message : 'unknown error'}`);
-      addLog('SYSTEM', 'Brief import failed');
-    }
-  };
-
-  const usePastedBrief = () => {
-    const text = briefText.trim();
-    if (!text) return;
-    const projectName = text.match(/\b(Level[_\s-]?Devil[_\s-]?play\d+_\d+)\b/i)?.[1]?.replace(/\s|-/g, '_');
-    if (projectName) renameActiveProject(projectName);
-    setBriefStatus('Brief accepted from pasted text');
-    addLog('BRIEF', 'Brief text accepted');
-    completeStep(0);
-  };
 
   const updateActiveConfig = (nextConfig: GameConfig) => {
     const normalized = normalizeConfig(nextConfig);
@@ -758,207 +641,6 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  const generateLevelFromImage = async (dataUrl: string, fileName: string) => {
-    const img = new Image();
-    img.src = dataUrl;
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('Image could not be decoded'));
-    });
-
-    const cols = 22;
-    const rows = 8;
-    const canvas = document.createElement('canvas');
-    canvas.width = cols;
-    canvas.height = rows;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) throw new Error('Canvas is not available');
-    ctx.drawImage(img, 0, 0, cols, rows);
-    const pixels = ctx.getImageData(0, 0, cols, rows).data;
-    const arrowDataUrls = await Promise.all([
-      assetUrlToDataUrl(A.remixArrowUp),
-      assetUrlToDataUrl(A.remixArrowRight),
-      assetUrlToDataUrl(A.remixArrowDown),
-      assetUrlToDataUrl(A.remixArrowLeft),
-    ]);
-    const arrowSprites: Record<ArrowDirection, string> = {
-      up: arrowDataUrls[0],
-      right: arrowDataUrls[1],
-      down: arrowDataUrls[2],
-      left: arrowDataUrls[3],
-    };
-    const directions: ArrowDirection[] = ['up', 'right', 'down', 'left'];
-    const cells: ArrowCell[] = [];
-    const objects: LevelObject[] = [];
-
-    const stageLeft = 92;
-    const stageTop = 78;
-    const usableW = 616;
-    const usableH = 188;
-    const cellW = usableW / cols;
-    const cellH = usableH / rows;
-
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const i = (row * cols + col) * 4;
-        const r = pixels[i];
-        const g = pixels[i + 1];
-        const b = pixels[i + 2];
-        const alpha = pixels[i + 3] / 255;
-        const brightness = (r + g + b) / 3;
-        if (alpha < 0.18 || brightness > 238) continue;
-        const direction = directions[(Math.floor(brightness / 64) + row + col) % directions.length];
-        const x = Math.round(stageLeft + col * cellW + cellW / 2);
-        const y = Math.round(stageTop + row * cellH + cellH / 2);
-        const color = rgbToHex(r, g, b);
-        cells.push({ col, row, x, y, direction, color, alpha: Math.round(alpha * 100) / 100 });
-      }
-    }
-
-    cells
-      .sort((a, b) => (b.alpha - a.alpha) || (a.row - b.row))
-      .slice(0, 56)
-      .forEach((cell, index) => {
-        const { dirX, dirY } = directionVector(cell.direction);
-        const bottomBand = cell.row >= rows - 2;
-        const type: TrapObjectType = bottomBand ? (index % 4 === 0 ? 'spike' : 'platform') : (cell.direction === 'down' ? 'fallingBlock' : 'saw');
-        const preset = objectPreset(type);
-        objects.push({
-          id: `img-${cell.direction}-${index + 1}`,
-          type,
-          x: cell.x,
-          y: bottomBand ? (type === 'spike' ? 281 : Math.min(260, cell.y)) : cell.y,
-          width: type === 'platform' ? Math.max(34, Math.round(cellW * 1.4)) : preset.width,
-          height: type === 'platform' ? 16 : preset.height,
-          label: `Image ${cell.direction} ${index + 1}`,
-          initiallyActive: true,
-          role: type === 'platform' ? 'solid' : preset.role,
-          color: cell.color,
-          spriteUrl: arrowSprites[cell.direction],
-          motion: type === 'saw'
-            ? { ...defaultMotion(), mode: 'linear', ...directionVector(cell.direction), speed: 0.8, distance: 42, loop: true, startOn: 'spawn' }
-            : type === 'fallingBlock'
-              ? { ...defaultMotion(), mode: 'fall', speed: 2.2, startOn: 'trigger', delay: index * 0.02 }
-              : undefined,
-        });
-      });
-
-    const nextConfig: GameConfig = {
-      ...config,
-      objects,
-      spikes: objects.filter((object) => object.type === 'spike').map((object) => object.x),
-      triggers: [
-        {
-          id: 'door-trigger',
-          x: 520,
-          y: 170,
-          width: 90,
-          height: 110,
-          targetId: 'door',
-          action: 'startDoorChase',
-          label: 'Door chase trigger',
-        },
-        ...objects
-          .filter((object) => object.type === 'fallingBlock')
-          .slice(0, 8)
-          .map((object, index) => ({
-            id: `img-trigger-${index + 1}`,
-            x: Math.max(40, object.x - 30),
-            y: Math.max(30, object.y - 70),
-            width: 60,
-            height: 90,
-            targetId: object.id,
-            action: 'activate' as const,
-            label: `Drop ${object.label}`,
-            delay: index * 0.08,
-          })),
-      ],
-    };
-
-    updateActiveConfig(nextConfig);
-    const arrowMap = {
-      source: fileName,
-      grid: { cols, rows, stageLeft, stageTop, usableW, usableH },
-      cells: cells.slice(0, 56),
-    };
-    setArrowMapText(JSON.stringify(arrowMap, null, 2));
-    setGeneratedSummary(`Generated ${objects.length} objects and ${nextConfig.triggers.length} triggers from ${fileName}`);
-    setSelectedEntityId(objects[0]?.id || null);
-    setEditorMode('constructor');
-    setCurrentTool('select');
-    addLog('IMAGE_BUILD', `Generated level from ${fileName}: ${objects.length} objects`);
-    completeStep(1);
-  };
-
-  const handleSourceImageUpload = (e: { target: HTMLInputElement }) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result);
-      setSourceImagePreview(dataUrl);
-      setGeneratedSummary('Analyzing image mask and building arrow map...');
-      generateLevelFromImage(dataUrl, file.name).catch((err) => {
-        setGeneratedSummary(`Image conversion failed: ${err instanceof Error ? err.message : 'unknown error'}`);
-        addLog('SYSTEM', 'Image conversion failed');
-      });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const applyTextureToObjects = async (url: string, mode: 'all' | 'tiles' | 'hazards') => {
-    setAssetStatus('Embedding texture...');
-    const spriteUrl = await assetUrlToDataUrl(url);
-    const next = cloneConfig(config);
-    next.objects = next.objects.map((object) => {
-      const isTile = object.type === 'platform' || object.type === 'fallingBlock' || object.type === 'button';
-      const isHazardObject = object.role === 'hazard' || ['spike', 'saw', 'crusher', 'laser'].includes(object.type);
-      if (mode === 'tiles' && !isTile) return object;
-      if (mode === 'hazards' && !isHazardObject) return object;
-      return { ...object, spriteUrl };
-    });
-    next.assetKit = { ...(next.assetKit || { name: 'Custom kit' }), tileTexture: spriteUrl };
-    updateActiveConfig(next);
-    setAssetStatus(`Texture applied to ${mode}`);
-    addLog('ASSETS', `Applied texture to ${mode}`);
-    completeStep(2);
-  };
-
-  const recolorObjects = (color: string, mode: 'all' | 'tiles' | 'hazards') => {
-    const next = cloneConfig(config);
-    next.objects = next.objects.map((object) => {
-      const isTile = object.type === 'platform' || object.type === 'fallingBlock' || object.type === 'button';
-      const isHazardObject = object.role === 'hazard' || ['spike', 'saw', 'crusher', 'laser'].includes(object.type);
-      if (mode === 'tiles' && !isTile) return object;
-      if (mode === 'hazards' && !isHazardObject) return object;
-      return { ...object, color };
-    });
-    next.assetKit = { ...(next.assetKit || { name: 'Custom kit' }), tileColor: color };
-    updateActiveConfig(next);
-    setAssetStatus(`Color ${color} applied to ${mode}`);
-    addLog('ASSETS', `Applied ${color} to ${mode}`);
-    completeStep(2);
-  };
-
-  const updateTutorialConfig = (patch: Partial<NonNullable<GameConfig['tutorial']>>) => {
-    updateActiveConfig({
-      ...config,
-      tutorial: {
-        enabled: true,
-        targetId: 'rightControl',
-        text: 'Tap to move',
-        startDelay: 0.9,
-        repeatEvery: 1.2,
-        duration: 4,
-        endOn: 'anyInput',
-        handUrl: A.tutorialHand,
-        ...(config.tutorial || {}),
-        ...patch,
-      },
-    });
-  };
-
   const updateSelectedTrigger = (patch: Partial<TriggerZone>) => {
     if (!selectedEntityId) return;
     const next = cloneConfig(config);
@@ -1127,23 +809,6 @@ export default function App() {
     { id: 'trigger', label: 'Trigger' },
     { id: 'erase', label: 'Erase' },
   ];
-  const stepReady = [
-    briefText.trim().length > 0,
-    generatedSummary.startsWith('Generated'),
-    !!config.assetKit || config.objects.some((object) => !!object.spriteUrl || !!object.color),
-    config.objects.length > 0,
-    true,
-  ];
-  const tutorial = config.tutorial || {
-    enabled: true,
-    targetId: 'rightControl',
-    text: 'Tap to move',
-    startDelay: 0.9,
-    repeatEvery: 1.2,
-    duration: 4,
-    endOn: 'anyInput' as const,
-    handUrl: A.tutorialHand,
-  };
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-zinc-950 text-zinc-100 font-sans">
@@ -1247,145 +912,6 @@ export default function App() {
         </div>
 
         <div className="space-y-4">
-          <section className="border border-amber-500/25 bg-amber-500/5 rounded-xl p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-amber-300 mb-3 flex items-center gap-2">
-              <Check className="w-3.5 h-3.5" />
-              Build Steps
-            </h3>
-            <div className="grid grid-cols-5 gap-1 mb-3">
-              {BUILDER_STEPS.map((step) => {
-                const done = stepReady[step.id];
-                const active = builderStep === step.id;
-                return (
-                  <button
-                    key={step.id}
-                    onClick={() => setBuilderStep(step.id)}
-                    className={`min-h-10 rounded border px-1 text-[10px] font-bold cursor-pointer ${active ? 'bg-amber-500 text-zinc-950 border-amber-300' : done ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25' : 'bg-zinc-950 text-zinc-500 border-zinc-800'}`}
-                  >
-                    <span className="block text-[9px] opacity-70">{step.id + 1}</span>
-                    {step.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {builderStep === 0 && (
-              <div className="space-y-3 text-xs">
-                <label className="block">
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Notion / public brief URL</span>
-                  <div className="flex gap-2">
-                    <input
-                      value={briefUrl}
-                      onChange={(e) => setBriefUrl(e.target.value)}
-                      placeholder="https://www.notion.so/..."
-                      className={`${inputClass} text-[11px]`}
-                    />
-                    <button
-                      onClick={importBriefFromUrl}
-                      disabled={!briefUrl.trim()}
-                      className="px-3 rounded bg-amber-500 text-zinc-950 text-[11px] font-bold disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                    >
-                      Load
-                    </button>
-                  </div>
-                </label>
-                <label className="block">
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Brief text</span>
-                  <textarea
-                    value={briefText}
-                    onChange={(e) => setBriefText(e.target.value)}
-                    placeholder="Paste client TZ here if the link is private"
-                    className={`${inputClass} h-24 text-[10px]`}
-                  />
-                </label>
-                <div className="flex items-center gap-2">
-                  <button onClick={usePastedBrief} disabled={!briefText.trim()} className="flex-1 py-2 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-xs font-semibold cursor-pointer disabled:cursor-not-allowed">
-                    Accept Brief
-                  </button>
-                  <button onClick={() => completeStep(0)} disabled={!stepReady[0]} className="flex-1 py-2 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 disabled:opacity-40 text-xs font-semibold cursor-pointer disabled:cursor-not-allowed">
-                    Continue
-                  </button>
-                </div>
-                {briefStatus && <p className="text-[10px] text-zinc-500">{briefStatus}</p>}
-              </div>
-            )}
-
-            {builderStep === 1 && (
-              <div className="space-y-3 text-xs">
-                <label className="block p-4 rounded-lg border border-dashed border-zinc-700 bg-black/30 text-center cursor-pointer hover:border-amber-500/60">
-                  <Upload className="w-5 h-5 mx-auto mb-2 text-amber-400" />
-                  <span className="font-semibold text-zinc-300">Upload image to generate arrow map and level objects</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleSourceImageUpload} />
-                </label>
-                {sourceImagePreview && <img src={sourceImagePreview} alt="source" className="w-full h-28 object-contain bg-black border border-zinc-800 rounded" />}
-                {generatedSummary && <p className="text-[10px] text-zinc-400">{generatedSummary}</p>}
-                {arrowMapText && (
-                  <textarea readOnly value={arrowMapText} className={`${inputClass} h-32 text-[9px]`} />
-                )}
-                <button onClick={() => completeStep(1)} disabled={!stepReady[1]} className="w-full py-2 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 disabled:opacity-40 text-xs font-semibold cursor-pointer disabled:cursor-not-allowed">
-                  Continue to Assets
-                </button>
-              </div>
-            )}
-
-            {builderStep === 2 && (
-              <div className="space-y-3 text-xs">
-                <div className="grid grid-cols-3 gap-2">
-                  {ASSET_LIBRARY.map((asset) => (
-                    <button
-                      key={asset.id}
-                      onClick={() => {
-                        if (asset.kind === 'tile' || asset.kind === 'arrow') applyTextureToObjects(asset.url, 'tiles');
-                        if (asset.kind === 'tutorial') updateTutorialConfig({ handUrl: asset.url, enabled: true });
-                        if (asset.kind === 'background') updateActiveConfig({ ...config, assetKit: { ...(config.assetKit || { name: 'Custom kit' }), backgroundImage: asset.url } });
-                      }}
-                      className="rounded-lg border border-zinc-800 bg-zinc-950 hover:bg-zinc-900 p-2 text-left cursor-pointer"
-                    >
-                      <img src={asset.url} alt="" className="w-full h-10 object-contain mb-1" style={{ imageRendering: 'pixelated' }} />
-                      <span className="block text-[10px] text-zinc-300 truncate">{asset.label}</span>
-                      <span className="block text-[9px] text-zinc-600 uppercase">{asset.kind}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {['#ffffff', '#38bdf8', '#f59e0b', '#ef4444', '#10b981', '#a855f7'].map((color) => (
-                    <button key={color} onClick={() => recolorObjects(color, 'tiles')} className="h-8 rounded border border-zinc-700 cursor-pointer" style={{ backgroundColor: color }} title={`Apply ${color} to tiles`} />
-                  ))}
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <button onClick={() => applyTextureToObjects(A.tileBlue, 'all')} className="py-2 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-[11px] font-semibold cursor-pointer">Texture all</button>
-                  <button onClick={() => recolorObjects('#ffffff', 'all')} className="py-2 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-[11px] font-semibold cursor-pointer">Repaint all</button>
-                  <button onClick={() => completeStep(2)} className="py-2 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold cursor-pointer">Continue</button>
-                </div>
-                {assetStatus && <p className="text-[10px] text-zinc-500">{assetStatus}</p>}
-              </div>
-            )}
-
-            {builderStep === 3 && (
-              <div className="space-y-3 text-xs">
-                <p className="text-[10px] text-zinc-500">Edit objects, triggers, tutorial and tuning below. Switch to Play to test before exporting.</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setEditorMode('constructor')} className="py-2 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold cursor-pointer">Edit mode</button>
-                  <button onClick={() => setEditorMode('play')} className="py-2 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold cursor-pointer">Play test</button>
-                </div>
-                <button onClick={() => completeStep(3)} disabled={!stepReady[3]} className="w-full py-2 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 disabled:opacity-40 text-xs font-semibold cursor-pointer disabled:cursor-not-allowed">
-                  Continue to Export
-                </button>
-              </div>
-            )}
-
-            {builderStep === 4 && (
-              <div className="space-y-2 text-xs">
-                <button onClick={exportToTemplate} className="w-full py-2 rounded bg-amber-500 text-zinc-950 text-xs font-bold cursor-pointer">
-                  Export to IMPION template
-                </button>
-                <a href={`data:text/html;charset=utf-8,${encodeURIComponent(standalonePlayable)}`} download={`${activeProject.name}.html`} className="w-full py-2 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-xs font-semibold flex justify-center cursor-pointer">
-                  Download standalone HTML
-                </a>
-              </div>
-            )}
-          </section>
-
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
               <Layers className="w-3.5 h-3.5" />
@@ -2178,59 +1704,6 @@ export default function App() {
                 onChange={(groundColor) => updateActiveConfig({ ...config, groundColor })}
                 onReset={config.groundColor && config.groundColor !== DEFAULT_GROUND ? () => updateActiveConfig({ ...config, groundColor: DEFAULT_GROUND }) : undefined}
               />
-            </div>
-          </section>
-
-          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
-              <MousePointer2 className="w-3.5 h-3.5" />
-              Tutorial
-            </h3>
-            <div className="space-y-3 text-xs">
-              <label className="flex items-center gap-2 text-zinc-400">
-                <input type="checkbox" checked={tutorial.enabled} onChange={(e) => updateTutorialConfig({ enabled: e.target.checked })} />
-                Show tutorial hand
-              </label>
-              <SelectField
-                label="Hand target"
-                value={tutorial.targetId}
-                options={[
-                  { value: 'leftControl', label: 'Left button' },
-                  { value: 'rightControl', label: 'Right button' },
-                  { value: 'jumpControl', label: 'Jump button' },
-                  { value: 'install', label: 'Install button' },
-                  { value: 'sound', label: 'Sound button' },
-                  { value: 'player', label: 'Player spawn' },
-                  { value: 'door', label: 'Door' },
-                  ...config.objects.map((object) => ({ value: object.id, label: object.label })),
-                ]}
-                onChange={(targetId) => updateTutorialConfig({ targetId })}
-              />
-              <label className="block">
-                <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Tutorial text</span>
-                <input value={tutorial.text} onChange={(e) => updateTutorialConfig({ text: e.target.value })} className={inputClass} />
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <NumberField label="Start (s)" value={tutorial.startDelay} min={0} max={10} step={0.1} onChange={(startDelay) => updateTutorialConfig({ startDelay })} />
-                <NumberField label="Repeat (s)" value={tutorial.repeatEvery} min={0} max={10} step={0.1} onChange={(repeatEvery) => updateTutorialConfig({ repeatEvery })} />
-                <NumberField label="Ends (s)" value={tutorial.duration} min={0} max={30} step={0.1} onChange={(duration) => updateTutorialConfig({ duration })} />
-              </div>
-              <SelectField
-                label="End condition"
-                value={tutorial.endOn}
-                options={[
-                  { value: 'anyInput', label: 'Any tap / key input' },
-                  { value: 'targetTap', label: 'Tap target only' },
-                  { value: 'timer', label: 'Timer only' },
-                ]}
-                onChange={(endOn) => updateTutorialConfig({ endOn })}
-              />
-              <div className="flex items-center gap-2">
-                <img src={tutorial.handUrl || A.tutorialHand} alt="tutorial hand" className="w-10 h-10 object-contain bg-black/40 border border-zinc-800 rounded" />
-                <button onClick={() => updateTutorialConfig({ handUrl: A.tutorialHand })} className="flex-1 py-2 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-xs font-semibold cursor-pointer">
-                  Use default hand asset
-                </button>
-              </div>
             </div>
           </section>
 

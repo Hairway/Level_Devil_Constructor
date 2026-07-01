@@ -9,46 +9,6 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
-  app.post("/api/import-brief", async (req, res) => {
-    try {
-      const { url } = req.body || {};
-      if (!url || typeof url !== 'string') {
-        return res.status(400).json({ error: "Missing url" });
-      }
-      const parsed = new URL(url);
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        return res.status(400).json({ error: "Only http/https links are supported" });
-      }
-      const response = await fetch(parsed.toString(), {
-        headers: {
-          "User-Agent": "LevelDevilConstructor/1.0",
-          "Accept": "text/html,application/pdf,text/plain,*/*",
-        },
-      });
-      if (!response.ok) {
-        return res.status(response.status).json({ error: `Failed to fetch brief (${response.status})` });
-      }
-      const contentType = response.headers.get("content-type") || "";
-      const raw = await response.text();
-      const text = contentType.includes("html")
-        ? raw
-            .replace(/<script[\s\S]*?<\/script>/gi, " ")
-            .replace(/<style[\s\S]*?<\/style>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/&nbsp;/g, " ")
-            .replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/\s+/g, " ")
-            .trim()
-        : raw.replace(/\s+/g, " ").trim();
-      res.json({ text: text.slice(0, 60000), title: parsed.hostname });
-    } catch (err: any) {
-      console.error("Import brief error:", err);
-      res.status(500).json({ error: err.message || "Failed to import brief" });
-    }
-  });
-
   // Export the current level straight into the IMPION template at ../src/level.json
   // (fixed target — no user-controlled path). Run the constructor from legacy-constructor/.
   app.post("/api/export-level", (req, res) => {
