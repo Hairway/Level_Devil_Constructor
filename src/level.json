@@ -7,7 +7,7 @@
 			"config": {
 				"playerSpeed": 3.5, "jumpForce": 11, "gravity": 0.7,
 				"doorBaseSpeed": 2.5, "doorAccelSpeed": 6, "doorHoming": 0.25, "triggerDistance": 260, "skipButtonDelay": 1.8,
-				"playerSpawnX": 90, "doorSpawnX": 720, "bgColor": "#c77b00", "groundColor": "#e2a33c",
+				"playerSpawnX": 90, "doorSpawnX": 720, "bgColor": "#c77b00", "groundColor": "#e2a33c", "groundOffset": 10,
 				"objects": [
 					{ "id": "spike-a", "type": "spike", "x": 300, "y": 281, "width": 30, "height": 22, "label": "Spike", "initiallyActive": true },
 					{ "id": "spike-b", "type": "spike", "x": 420, "y": 281, "width": 30, "height": 22, "label": "Spike", "initiallyActive": true }
@@ -22,7 +22,7 @@
 			"config": {
 				"playerSpeed": 3.5, "jumpForce": 11, "gravity": 0.7,
 				"doorBaseSpeed": 2.5, "doorAccelSpeed": 6, "doorHoming": 0.25, "triggerDistance": 260, "skipButtonDelay": 1.8,
-				"playerSpawnX": 90, "doorSpawnX": 720, "bgColor": "#1f2937", "groundColor": "#4b5563",
+				"playerSpawnX": 90, "doorSpawnX": 720, "bgColor": "#1f2937", "groundColor": "#4b5563", "groundOffset": 10,
 				"objects": [
 					{ "id": "spike-1", "type": "spike", "x": 260, "y": 281, "width": 30, "height": 22, "label": "Spike", "initiallyActive": true, "role": "hazard" },
 					{ "id": "pit1", "type": "pit", "x": 430, "y": 281, "width": 110, "height": 42, "label": "Pit", "initiallyActive": false, "role": "pit" },

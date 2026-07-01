@@ -565,6 +565,7 @@ export default function LevelDevilGame({
       const runtime = stateRef.current.editorMode === 'play' ? stateRef.current.objectRuntime.get(object.id) : undefined;
       display.x = runtime?.x ?? object.x;
       display.y = runtime?.y ?? object.y;
+      if (object.rotation) display.rotation = (object.rotation * Math.PI) / 180;
       return display;
     };
 
@@ -725,6 +726,7 @@ export default function LevelDevilGame({
       objectSprites.clear();
       const s = stateRef.current;
       const play = s.editorMode === 'play';
+      objectsLayer.y = s.config.groundOffset || 0; // visual nudge so traps sit on the ground
 
       s.config.objects.forEach((object) => {
         const runtime = s.objectRuntime.get(object.id);
@@ -835,6 +837,8 @@ export default function LevelDevilGame({
       drawTriggers();
       drawConnectors();
 
+      const gOff = s.config.groundOffset || 0; // visual-only downward nudge (physics unchanged)
+      player.anchor.set(0.5, 1 - gOff / PLAYER_H);
       player.x = s.config.playerSpawnX;
       player.y = GROUND_Y;
       player.alpha = 1;
@@ -842,7 +846,7 @@ export default function LevelDevilGame({
       player.scale.set(PLAYER_SCALE, PLAYER_SCALE);
 
       doorContainer.x = s.config.doorSpawnX;
-      doorContainer.y = GROUND_Y;
+      doorContainer.y = GROUND_Y + gOff;
       setDoorArmed(s.activeRun === 2 || s.activeRun === 3 || s.doorTriggered);
 
       if (s.editorMode === 'constructor') {
@@ -1394,7 +1398,15 @@ export default function LevelDevilGame({
         if (effectiveRole(object) !== 'hazard') continue;
         const cx = rt ? rt.x : object.x;
         if (object.type === 'spike') {
-          if (Math.abs(player.x - cx) < object.width / 2 && player.y > GROUND_Y - 12) {
+          const oy = rt ? rt.y : object.y;
+          const floorSpike = !object.rotation && oy >= GROUND_Y - 14;
+          if (floorSpike) {
+            if (Math.abs(player.x - cx) < object.width / 2 && player.y > GROUND_Y - 12) {
+              triggerDeath('SPIKE');
+              return;
+            }
+          } else if (touching) {
+            // ceiling / wall / repositioned spike: use the bounding box
             triggerDeath('SPIKE');
             return;
           }
