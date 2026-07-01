@@ -70,6 +70,7 @@ export default function LevelDevilGame({
   selectedEntityId,
   showTriggers,
   showConnectors,
+  gridSnap,
   onConfigChange,
   onSelectEntity,
   onLogEvent,
@@ -98,6 +99,7 @@ export default function LevelDevilGame({
     selectedEntityId,
     showTriggers,
     showConnectors,
+    gridSnap,
     keys: {} as Record<string, boolean>,
     playerVelY: 0,
     playerVelX: 0,
@@ -159,6 +161,10 @@ export default function LevelDevilGame({
     stateRef.current.showConnectors = showConnectors;
     redrawRef.current();
   }, [showTriggers, showConnectors]);
+
+  useEffect(() => {
+    stateRef.current.gridSnap = gridSnap;
+  }, [gridSnap]);
 
   useEffect(() => {
     stateRef.current.splashActive = true;
@@ -298,6 +304,12 @@ export default function LevelDevilGame({
       | { kind: 'door'; dx: number; display: PIXI.DisplayObject }
       | { kind: 'link'; sourceKind: 'trigger' | 'object'; id: string; x: number; y: number }
       | null = null;
+
+    // Snap a coordinate to the editor grid (falls back to whole pixels when snapping is off).
+    const snapVal = (v: number) => {
+      const g = stateRef.current.gridSnap;
+      return g > 0 ? Math.round(v / g) * g : Math.round(v);
+    };
 
     const app = new PIXI.Application({
       width: VIEW_W,
@@ -674,8 +686,14 @@ export default function LevelDevilGame({
       });
     };
 
+    // Cache of live display objects by id, reused across frames instead of rebuilt every tick.
+    const objectSprites = new Map<string, PIXI.DisplayObject>();
+
+    // Full (re)build of object sprites. Called on structural changes (reset, edits, activation),
+    // not every frame — per-frame motion uses syncObjectTransforms() which only moves/hides them.
     const drawObjects = () => {
       objectsLayer.removeChildren();
+      objectSprites.clear();
       const s = stateRef.current;
       const play = s.editorMode === 'play';
 
@@ -687,14 +705,17 @@ export default function LevelDevilGame({
         if (play) {
           // pits are rendered by the floor; never draw a separate pit sprite in play
           if (object.type === 'pit') return;
-          // hide not-yet-triggered and not-yet-appeared objects so the build stays clean
-          if (!active || !appeared) return;
+          // skip not-yet-triggered objects entirely (they get rebuilt when activated)
+          if (!active) return;
         }
 
         const display = makeObjectSprite(object);
         const selected = s.selectedEntityId === object.id;
         if (!play && 'alpha' in display) {
           display.alpha = active || object.type === 'spike' ? 1 : 0.55;
+        }
+        if (play) {
+          display.visible = appeared; // appear-delay objects start hidden, revealed by sync
         }
 
         if (play && object.clickable && (object.action?.kind || 'none') !== 'none') {
@@ -721,7 +742,26 @@ export default function LevelDevilGame({
           objectsLayer.addChild(outline);
         }
 
+        objectSprites.set(object.id, display);
         objectsLayer.addChild(display);
+      });
+    };
+
+    // Cheap per-frame update in play: reposition cached sprites and toggle appear-delay visibility.
+    // No allocation or listener churn. Active-state visual changes go through drawObjects instead.
+    const syncObjectTransforms = () => {
+      const s = stateRef.current;
+      s.config.objects.forEach((object) => {
+        const display = objectSprites.get(object.id);
+        if (!display) return;
+        const rt = s.objectRuntime.get(object.id);
+        if (rt) {
+          display.x = rt.x;
+          display.y = rt.y;
+        }
+        const active = s.activeObjectIds.has(object.id) || object.initiallyActive;
+        const appeared = rt ? rt.since >= (object.appearDelay || 0) : true;
+        display.visible = active && appeared;
       });
     };
 
@@ -929,7 +969,7 @@ export default function LevelDevilGame({
       const s = stateRef.current;
       if (s.editorMode !== 'constructor') return;
       const local = e.data.getLocalPosition(world);
-      const x = Math.round(clamp(local.x, 20, VIEW_W - 20));
+      const x = clamp(snapVal(local.x), 20, VIEW_W - 20);
 
       if (s.currentTool === 'select') {
         onSelectEntity(null);
@@ -1010,15 +1050,15 @@ export default function LevelDevilGame({
       if (!dragging) return;
       const p = e.data.getLocalPosition(world);
       if (dragging.kind === 'object') {
-        dragging.display.x = clamp(p.x - dragging.dx, 20, VIEW_W - 20);
-        dragging.display.y = clamp(p.y - dragging.dy, BAND_TOP + 24, GROUND_Y + 1);
+        dragging.display.x = clamp(snapVal(p.x - dragging.dx), 20, VIEW_W - 20);
+        dragging.display.y = clamp(snapVal(p.y - dragging.dy), BAND_TOP + 24, GROUND_Y + 1);
       } else if (dragging.kind === 'trigger') {
-        dragging.display.x = clamp(p.x - dragging.dx, 0, VIEW_W - 20);
-        dragging.display.y = clamp(p.y - dragging.dy, BAND_TOP, GROUND_Y - 20);
+        dragging.display.x = clamp(snapVal(p.x - dragging.dx), 0, VIEW_W - 20);
+        dragging.display.y = clamp(snapVal(p.y - dragging.dy), BAND_TOP, GROUND_Y - 20);
       } else if (dragging.kind === 'player') {
-        dragging.display.x = clamp(p.x - dragging.dx, 40, VIEW_W - 40);
+        dragging.display.x = clamp(snapVal(p.x - dragging.dx), 40, VIEW_W - 40);
       } else if (dragging.kind === 'door') {
-        dragging.display.x = clamp(p.x - dragging.dx, 80, VIEW_W - 40);
+        dragging.display.x = clamp(snapVal(p.x - dragging.dx), 80, VIEW_W - 40);
       } else if (dragging.kind === 'link') {
         dragging.x = p.x;
         dragging.y = p.y;
@@ -1250,7 +1290,7 @@ export default function LevelDevilGame({
       }
       if (objectsDirty) {
         drawFloor(s.floorCollapsed);
-        drawObjects();
+        syncObjectTransforms();
       }
 
       for (const object of s.config.objects) {
@@ -1520,6 +1560,7 @@ interface LevelDevilGameProps {
   selectedEntityId: string | null;
   showTriggers: boolean;
   showConnectors: boolean;
+  gridSnap: number;
   onConfigChange: (config: GameConfig) => void;
   onSelectEntity: (id: string | null) => void;
   onLogEvent: (type: string, msg: string) => void;

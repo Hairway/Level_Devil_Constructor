@@ -33,6 +33,7 @@ import {
   FileCode2,
   Gamepad2,
   GitBranch,
+  Grid3x3,
   Layers,
   Link2,
   MousePointer2,
@@ -298,6 +299,7 @@ export default function App() {
   const [showTriggers, setShowTriggers] = useState(true);
   const [showConnectors, setShowConnectors] = useState(true);
   const [showDriveSync, setShowDriveSync] = useState(false);
+  const [snapToGrid, setSnapToGrid] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [jsonText, setJsonText] = useState('');
   const [isJsonValid, setIsJsonValid] = useState(true);
@@ -484,21 +486,6 @@ export default function App() {
     setSelectedEntityId(null);
   };
 
-  // Delete / Backspace removes the selected object or trigger (unless typing in a field).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (editorMode !== 'constructor') return;
-      const el = document.activeElement as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEntityId && selectedEntityId !== 'playerSpawn' && selectedEntityId !== 'door') {
-        e.preventDefault();
-        deleteSelected();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
-
   const updateSelectedObject = (patch: Partial<LevelObject>) => {
     if (!selectedEntityId) return;
     const next = cloneConfig(config);
@@ -605,6 +592,48 @@ export default function App() {
     : selectedEntityId === 'door'
       ? config.doorSpawnX
       : null;
+
+  // Editor keyboard shortcuts: Delete removes, Ctrl/Cmd+D duplicates, arrows nudge the selection.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (editorMode !== 'constructor' || !selectedEntityId) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      const isSpecial = selectedEntityId === 'playerSpawn' || selectedEntityId === 'door';
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isSpecial) {
+        e.preventDefault();
+        deleteSelected();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D') && !isSpecial) {
+        e.preventDefault();
+        duplicateSelected();
+        return;
+      }
+      const step = e.shiftKey ? 10 : 1;
+      const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+      const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+      if (dx === 0 && dy === 0) return;
+      e.preventDefault();
+      if (selectedObject) {
+        updateSelectedObject({
+          x: Math.max(0, Math.min(800, selectedObject.x + dx)),
+          y: Math.max(0, Math.min(328, selectedObject.y + dy)),
+        });
+      } else if (selectedTrigger) {
+        updateSelectedTrigger({
+          x: Math.max(0, Math.min(800, selectedTrigger.x + dx)),
+          y: Math.max(0, Math.min(328, selectedTrigger.y + dy)),
+        });
+      } else if (isSpecial && dx !== 0) {
+        updateSpecialSelectionX((selectedSpecialX ?? 0) + dx);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   const toolButtons: Array<{ id: EditorTool; label: string }> = [
     { id: 'select', label: 'Select' },
     ...objectCatalog.map((item) => ({ id: item.type, label: item.label })),
@@ -660,6 +689,7 @@ export default function App() {
             selectedEntityId={selectedEntityId}
             showTriggers={showTriggers}
             showConnectors={showConnectors}
+            gridSnap={snapToGrid ? 10 : 0}
             onConfigChange={updateActiveConfig}
             onSelectEntity={setSelectedEntityId}
             onLogEvent={addLog}
@@ -855,6 +885,13 @@ export default function App() {
               <button onClick={() => setShowConnectors((v) => !v)} className="py-2 px-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                 <Link2 className="w-3.5 h-3.5" />
                 Links
+              </button>
+              <button
+                onClick={() => setSnapToGrid((v) => !v)}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 cursor-pointer col-span-2 ${snapToGrid ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+              >
+                <Grid3x3 className="w-3.5 h-3.5" />
+                Snap to grid {snapToGrid ? '(10px)' : 'off'}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2 mt-2">
