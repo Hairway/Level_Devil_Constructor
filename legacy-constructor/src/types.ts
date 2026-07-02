@@ -8,7 +8,7 @@ export type TrapObjectType =
   | 'platform'
   | 'button'
   | 'text';
-export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'teleport' | 'checkpoint' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
+export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'teleport' | 'checkpoint' | 'win' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
 
 // How an object behaves over time once it is active.
 export type MotionMode = 'static' | 'linear' | 'chase' | 'fall' | 'orbit' | 'pendulum' | 'path';
@@ -22,6 +22,7 @@ export type ObjectActionKind =
   | 'toggle'
   | 'teleport'
   | 'checkpoint'
+  | 'win'
   | 'openPit'
   | 'splitFloor'
   | 'startDoorChase'
@@ -107,6 +108,7 @@ export interface GameConfig {
   doorBaseSpeed: number;
   doorAccelSpeed: number;
   doorHoming: number;
+  doorMode?: 'fake' | 'win'; // fake = troll door that runs away & kills; win = safe goal (reach = next run). undefined = legacy auto
   triggerDistance: number;
   skipButtonDelay: number;
   spikes: number[];
