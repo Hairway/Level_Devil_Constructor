@@ -35,10 +35,19 @@ const isTrapTool = (tool: EditorTool): tool is TrapObjectType => TRAP_TOOLS.has(
 const isBottomAnchored = (type: TrapObjectType) => type === 'spike' || type === 'pit';
 
 const objectLocalRect = (object: LevelObject) => {
-  if (isBottomAnchored(object.type)) {
-    return { x: -object.width / 2, y: -object.height, w: object.width, h: object.height };
+  const base = isBottomAnchored(object.type)
+    ? { x: -object.width / 2, y: -object.height, w: object.width, h: object.height }
+    : { x: -object.width / 2, y: -object.height / 2, w: object.width, h: object.height };
+  if (!object.rotation) return base;
+  // rotated: return the axis-aligned bounding box of the rotated shape (hitbox matches visual)
+  const t = (object.rotation * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const x of [base.x, base.x + base.w]) for (const y of [base.y, base.y + base.h]) {
+    const rx = x * c - y * s, ry = x * s + y * c;
+    minX = Math.min(minX, rx); maxX = Math.max(maxX, rx);
+    minY = Math.min(minY, ry); maxY = Math.max(maxY, ry);
   }
-  return { x: -object.width / 2, y: -object.height / 2, w: object.width, h: object.height };
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 };
 
 const cloneConfig = (config: GameConfig): GameConfig => ({
