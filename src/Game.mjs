@@ -220,6 +220,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			bgColor: c.bgColor || DEFAULT_BG,
 			groundColor: c.groundColor || DEFAULT_GROUND,
 			groundOffset: c.groundOffset || 0,
+			noBaseGround: c.noBaseGround || false,
 			title: c.title || null,
 			ctaButton: c.ctaButton || null,
 			sound: c.sound || null,
@@ -457,8 +458,8 @@ export default class Game extends IMPION.ComponentEmpty {
 			if (holeW <= 0) continue;
 			g.rect(o.x - holeW / 2, GROUND_Y - 2, holeW, VIEW_H - GROUND_Y + 16).fill({ color: bg });
 		}
-		if (this.#floorCollapsed) {
-			g.rect(90, GROUND_Y - 2, VIEW_W - 180, VIEW_H - GROUND_Y + 16).fill({ color: bg });
+		if (this.#floorCollapsed || this.#config.noBaseGround) {
+			g.rect(0, GROUND_Y - 2, VIEW_W, VIEW_H - GROUND_Y + 16).fill({ color: bg });
 		}
 	}
 
@@ -622,7 +623,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		if (this.#vx < 0) this.#facing = -1; else if (this.#vx > 0) this.#facing = 1;
 
 		this.#vy += s.gravity * dt;
-		px = clamp(px + this.#vx * dt, PLAYER_W, VIEW_W - PLAYER_W);
+		px = clamp(px + this.#vx * dt, PLAYER_W / 2, VIEW_W - PLAYER_W / 2);
 		py += this.#vy * dt;
 
 		//- force zones (conveyors / wind): push the player while inside
@@ -633,7 +634,7 @@ export default class Game extends IMPION.ComponentEmpty {
 				py += (t.pushY || 0) * dt;
 			}
 		}
-		px = clamp(px, PLAYER_W, VIEW_W - PLAYER_W);
+		px = clamp(px, PLAYER_W / 2, VIEW_W - PLAYER_W / 2);
 		if (py - PLAYER_H < BAND_TOP) { py = BAND_TOP + PLAYER_H; if (this.#vy < 0) this.#vy = 0; }
 
 		//- open pit test
@@ -660,7 +661,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			}
 		}
 		if (!landed && py >= GROUND_Y) {
-			if (!this.#floorCollapsed && !inOpenPit) { py = GROUND_Y; this.#vy = 0; this.#grounded = true; }
+			if (!this.#floorCollapsed && !inOpenPit && !s.noBaseGround) { py = GROUND_Y; this.#vy = 0; this.#grounded = true; }
 			else this.#grounded = false;
 		}
 

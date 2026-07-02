@@ -1799,6 +1799,11 @@ export default function App() {
               />
               <p className="text-[10px] text-zinc-600 mt-0.5">Visually lowers the hero &amp; traps so they sit on the ground.</p>
             </div>
+            <label className="flex items-center gap-2 text-zinc-400 text-xs mt-3 pt-3 border-t border-zinc-900">
+              <input type="checkbox" checked={!!config.noBaseGround} onChange={(e) => updateActiveConfig({ ...config, noBaseGround: e.target.checked })} />
+              Build floor from tiles (no base ground)
+            </label>
+            <p className="text-[10px] text-zinc-600 mt-1">Removes the default floor — lay Platform objects as floor tiles at any height (multi-level). Deactivate a tile to break it. Falling off the bottom = death.</p>
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">

@@ -472,9 +472,9 @@ export default function LevelDevilGame({
         }
       });
 
-      if (collapsed) {
+      if (collapsed || s.config.noBaseGround) {
         floorGraphics.beginFill(bg);
-        floorGraphics.drawRect(90, GROUND_Y - 2, VIEW_W - 180, VIEW_H - GROUND_Y + 16);
+        floorGraphics.drawRect(0, GROUND_Y - 2, VIEW_W, VIEW_H - GROUND_Y + 16);
         floorGraphics.endFill();
       }
     };
@@ -1436,7 +1436,7 @@ export default function LevelDevilGame({
           player.y += (t.pushY || 0) * delta;
         }
       }
-      player.x = clamp(player.x, 50, VIEW_W - 50);
+      player.x = clamp(player.x, 10, VIEW_W - 10);
 
       if (player.y - PLAYER_H < BAND_TOP) {
         player.y = BAND_TOP + PLAYER_H;
@@ -1474,7 +1474,7 @@ export default function LevelDevilGame({
       }
 
       if (!landedOnSolid && player.y >= GROUND_Y) {
-        if (!s.floorCollapsed && !inOpenPit) {
+        if (!s.floorCollapsed && !inOpenPit && !s.config.noBaseGround) {
           player.y = GROUND_Y;
           s.playerVelY = 0;
           s.isGrounded = true;
