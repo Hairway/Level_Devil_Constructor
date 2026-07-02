@@ -20,6 +20,7 @@ export default class Game extends IMPION.ComponentEmpty {
 	#vx = 0;
 	#vy = 0;
 	#grounded = false;
+	#wasGrounded = true;
 	#facing = 1;
 	#dead = false;
 	#dying = false;
@@ -636,6 +637,8 @@ export default class Game extends IMPION.ComponentEmpty {
 			else this.#grounded = false;
 		}
 
+		if (this.#grounded && !this.#wasGrounded) this.#playSound("sfx_land"); // touched down
+		this.#wasGrounded = this.#grounded;
 		hero.position.set(px, py);
 		this.#updateHeroVisual(dt);
 
