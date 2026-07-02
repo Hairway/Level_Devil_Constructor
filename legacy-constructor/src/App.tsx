@@ -388,6 +388,7 @@ const ACTION_OPTIONS: Array<{ value: ObjectActionKind; label: string }> = [
   { value: 'toggle', label: 'Toggle target (show/hide)' },
   { value: 'teleport', label: 'Teleport player to target' },
   { value: 'checkpoint', label: 'Set checkpoint (respawn here)' },
+  { value: 'win', label: 'Win / complete run (next run)' },
   { value: 'openPit', label: 'Open pit' },
   { value: 'splitFloor', label: 'Split floor open' },
   { value: 'collapseFloor', label: 'Collapse whole floor' },
@@ -1459,7 +1460,7 @@ export default function App() {
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Action</div>
                   <SelectField label="Does" value={selObjAction.kind} options={ACTION_OPTIONS} onChange={(kind) => updateSelectedAction({ kind: kind as ObjectActionKind })} />
-                  {selObjAction.kind !== 'none' && !['collapseFloor', 'nextRun', 'redirectCTA', 'checkpoint'].includes(selObjAction.kind) && (
+                  {selObjAction.kind !== 'none' && !['collapseFloor', 'nextRun', 'redirectCTA', 'checkpoint', 'win'].includes(selObjAction.kind) && (
                     <SelectField label="On target" value={selObjAction.targetId} options={actionTargetOptions} onChange={(targetId) => updateSelectedAction({ targetId })} />
                   )}
                   <label className="flex items-center gap-2 text-zinc-400">
@@ -1567,7 +1568,7 @@ export default function App() {
                     options={config.triggers.filter((t) => t.id !== selectedEntityId).map((t) => ({ value: t.id, label: t.label }))}
                     onChange={(targetId) => updateSelectedTrigger({ targetId })}
                   />
-                ) : !['collapseFloor', 'nextRun', 'redirectCTA', 'checkpoint'].includes(selectedTrigger.action) && (
+                ) : !['collapseFloor', 'nextRun', 'redirectCTA', 'checkpoint', 'win'].includes(selectedTrigger.action) && (
                   <SelectField
                     label="Target"
                     value={selectedTrigger.targetId}
@@ -1708,6 +1709,21 @@ export default function App() {
             {selectedSpecialX !== null && (
               <div className="space-y-3 text-xs">
                 <NumberField label="X position" value={selectedSpecialX} min={20} max={780} onChange={updateSpecialSelectionX} />
+                {selectedEntityId === 'door' && (
+                  <>
+                    <SelectField
+                      label="Door type"
+                      value={config.doorMode || 'auto'}
+                      options={[
+                        { value: 'auto', label: 'Auto (per-run: chase then safe)' },
+                        { value: 'fake', label: 'Fake (runs away & kills)' },
+                        { value: 'win', label: 'Win (reach it = next run)' },
+                      ]}
+                      onChange={(v) => updateActiveConfig({ ...config, doorMode: v === 'auto' ? undefined : (v as 'fake' | 'win') })}
+                    />
+                    <p className="text-[10px] text-zinc-500">Fake = the troll door that flees. Win = a real exit; reaching it completes the run.</p>
+                  </>
+                )}
                 <p className="text-[10px] text-zinc-500">Drag it on the level or set the exact X position here.</p>
               </div>
             )}

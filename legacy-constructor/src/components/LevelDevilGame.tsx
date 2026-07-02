@@ -1004,7 +1004,9 @@ export default function LevelDevilGame({
 
       doorContainer.x = s.config.doorSpawnX;
       doorContainer.y = GROUND_Y + gOff;
-      setDoorArmed(s.activeRun === 2 || s.activeRun === 3 || s.doorTriggered);
+      // explicit door mode: fake shows armed, win shows safe; legacy uses run heuristics
+      const dm = s.config.doorMode;
+      setDoorArmed(dm === 'fake' ? true : dm === 'win' ? false : (s.activeRun === 2 || s.activeRun === 3 || s.doorTriggered));
 
       if (s.editorMode === 'constructor') {
         player.eventMode = 'static';
@@ -1122,6 +1124,10 @@ export default function LevelDevilGame({
           break;
         case 'nextRun':
           onLogEvent('PROGRESS', `[Action] ${sourceLabel} skipped to the next run`);
+          onRunComplete(s.activeRun + 1);
+          return;
+        case 'win':
+          onLogEvent('PROGRESS', `[Action] ${sourceLabel} — level complete`);
           onRunComplete(s.activeRun + 1);
           return;
         case 'redirectCTA':
@@ -1675,17 +1681,18 @@ export default function LevelDevilGame({
         }
       }
 
-      if (s.activeRun === 1 || s.activeRun === 2) {
+      // fake = troll door (runs away & kills); win = safe goal (reach = next run); undefined = legacy per-run
+      const dm = s.config.doorMode;
+      if (dm === 'win') {
+        if (Math.abs(player.x - doorContainer.x) < 26 && player.y >= GROUND_Y - 4) { onRunComplete(s.activeRun + 1); return; }
+      } else if (dm === 'fake' || s.activeRun === 1 || s.activeRun === 2) {
+        const fake = dm === 'fake';
         const hasDoorTrigger = s.config.triggers.some((trigger) => trigger.action === 'startDoorChase');
-        if (s.activeRun === 1 && !hasDoorTrigger && !s.doorTriggered && doorContainer.x - player.x < s.config.triggerDistance) {
-          s.doorTriggered = true;
-          setDoorArmed(true);
-          onLogEvent('TRAP_ACTIVATE', '[Trap] Door armed by proximity');
-        }
-        if (s.activeRun === 2 && !s.doorTriggered && s.playerMoved) {
-          s.doorTriggered = true;
-          setDoorArmed(true);
-          onLogEvent('TRAP_ACTIVATE', '[Trap] Door starts hunting after first action');
+        if (!hasDoorTrigger && !s.doorTriggered) {
+          const byProx = doorContainer.x - player.x < s.config.triggerDistance;
+          const byMove = s.playerMoved;
+          const trig = fake ? (byProx || byMove) : (s.activeRun === 1 ? byProx : byMove);
+          if (trig) { s.doorTriggered = true; setDoorArmed(true); onLogEvent('TRAP_ACTIVATE', '[Trap] Door starts hunting'); }
         }
         if (s.doorTriggered) {
           s.doorTimer += (1 / 60) * delta;
@@ -1718,7 +1725,7 @@ export default function LevelDevilGame({
         }
       }
 
-      if (s.activeRun === 3 && !s.endcardActive) {
+      if (!dm && s.activeRun === 3 && !s.endcardActive) {
         const moving = !!(s.keys['ArrowLeft'] || s.keys['KeyA'] || s.keys['ArrowRight'] || s.keys['KeyD'] ||
           s.keys['Space'] || s.keys['ArrowUp'] || s.keys['KeyW']);
         if (moving) {

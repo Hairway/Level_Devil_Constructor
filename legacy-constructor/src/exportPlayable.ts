@@ -185,6 +185,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
       if (kind === 'startDoorChase') { doorTriggered = true; return; }
       if (kind === 'collapseFloor') { floorCollapsed = true; return; }
       if (kind === 'nextRun') { loadRun(runIndex + 1); return; }
+      if (kind === 'win') { loadRun(runIndex + 1); return; }
       if (kind === 'redirectCTA') { cta.style.display = 'flex'; dead = true; return; }
       if (kind === 'chain') { const c = config.triggers.find(x => x.id === targetId); if (c && !firedIds.has(c.id)) { firedIds.add(c.id); fireTrigger(c); } return; }
       if (kind === 'teleport') { const to = config.objects.find(x => x.id === targetId); const rt = to ? rtOf(targetId) : null; player.x = to ? (rt ? rt.x : to.x) : door.x; player.y = to ? (rt ? rt.y : to.y) : GROUND_Y; player.vy = 0; return; }
@@ -447,18 +448,28 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
         if (touch) return die(o.type === 'saw' ? 'SAW' : o.type === 'laser' ? 'LASER' : 'CRUSH');
       }
 
+      // fake = troll door (runs away & kills); win = safe goal (reach = next run); undefined = legacy
+      const dm = config.doorMode;
       const hasDoorTrigger = config.triggers.some(t => t.action === 'startDoorChase');
-      if (runIndex === 0 && !hasDoorTrigger && !doorTriggered && door.x - player.x < config.triggerDistance) doorTriggered = true;
-      if (runIndex === 1 && !doorTriggered && (player.vx || keys.Space || keys.ArrowUp || keys.KeyW)) doorTriggered = true;
-      if ((runIndex === 0 || runIndex === 1) && doorTriggered) {
-        doorTimer += delta / 60;
-        const speed = Math.min(config.doorAccelSpeed + doorTimer * 1.5, config.doorAccelSpeed + 7);
-        if (runIndex === 1 && doorTimer > config.skipButtonDelay && !skipClicked && !skipActive) { skipActive = true; skip.style.display = 'block'; }
-        doorVx = clamp((doorVx + Math.sign(player.x - door.x) * config.doorHoming * delta) * .97, -speed, speed);
-        doorVy = clamp((doorVy + Math.sign((player.y - 16) - (door.y - 28)) * config.doorHoming * delta) * .97, -speed, speed);
-        door.x = clamp(door.x + doorVx * delta, 40, VIEW_W - 40);
-        door.y = clamp(door.y + doorVy * delta, 40, GROUND_Y);
-        if (Math.hypot(door.x - player.x, door.y - 28 - (player.y - 16)) < 30) return die('SAW');
+      if (dm === 'win') {
+        if (Math.abs(player.x - door.x) < 26 && player.y >= GROUND_Y - 4) return loadRun(runIndex + 1);
+      } else if (dm === 'fake' || runIndex === 0 || runIndex === 1) {
+        const fake = dm === 'fake';
+        if (!hasDoorTrigger && !doorTriggered) {
+          const byProx = door.x - player.x < config.triggerDistance;
+          const byInput = player.vx || keys.Space || keys.ArrowUp || keys.KeyW;
+          if (fake ? (byProx || byInput) : (runIndex === 0 ? byProx : byInput)) doorTriggered = true;
+        }
+        if (doorTriggered) {
+          doorTimer += delta / 60;
+          const speed = Math.min(config.doorAccelSpeed + doorTimer * 1.5, config.doorAccelSpeed + 7);
+          if (runIndex === 1 && doorTimer > config.skipButtonDelay && !skipClicked && !skipActive) { skipActive = true; skip.style.display = 'block'; }
+          doorVx = clamp((doorVx + Math.sign(player.x - door.x) * config.doorHoming * delta) * .97, -speed, speed);
+          doorVy = clamp((doorVy + Math.sign((player.y - 16) - (door.y - 28)) * config.doorHoming * delta) * .97, -speed, speed);
+          door.x = clamp(door.x + doorVx * delta, 40, VIEW_W - 40);
+          door.y = clamp(door.y + doorVy * delta, 40, GROUND_Y);
+          if (Math.hypot(door.x - player.x, door.y - 28 - (player.y - 16)) < 30) return die('SAW');
+        }
       }
       draw();
     });

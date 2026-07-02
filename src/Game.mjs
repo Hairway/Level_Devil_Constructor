@@ -212,6 +212,7 @@ export default class Game extends IMPION.ComponentEmpty {
 			doorBaseSpeed: c.doorBaseSpeed ?? 2.5,
 			doorAccelSpeed: c.doorAccelSpeed ?? 6,
 			doorHoming: c.doorHoming ?? 0.25,
+			doorMode: c.doorMode || null,
 			triggerDistance: c.triggerDistance ?? 260,
 			skipButtonDelay: c.skipButtonDelay ?? 1.8,
 			playerSpawnX: c.playerSpawnX ?? 90,
@@ -233,7 +234,9 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#dying = false;
 		this.#floorCollapsed = false;
 		this.#vx = 0; this.#vy = 0; this.#grounded = true;
-		this.#door = { x: s.doorSpawnX, y: GROUND_Y, armed: false, triggered: this.#runIndex === 2, timer: 0, vx: 0, vy: 0 };
+		// door starts safe for explicit modes; legacy auto keeps the run-2 armed look
+		const doorTrig = s.doorMode ? false : this.#runIndex === 2;
+		this.#door = { x: s.doorSpawnX, y: GROUND_Y, armed: false, triggered: doorTrig, timer: 0, vx: 0, vy: 0 };
 		this.#activeIds = new Set(s.objects.filter((o) => o.initiallyActive).map((o) => o.id));
 		this.#hiddenIds = new Set();
 		this.#firedIds = new Set();
@@ -462,7 +465,7 @@ export default class Game extends IMPION.ComponentEmpty {
 	#drawDoor() {
 		const g = this.#doorGfx;
 		const gOff = (this.#config && this.#config.groundOffset) || 0;
-		const armed = this.#door.armed || this.#runIndex === 2;
+		const armed = this.#door.armed || (!(this.#config && this.#config.doorMode) && this.#runIndex === 2);
 		if (g instanceof IMPION.Sprite2d) {
 			const t = this.#tex(armed ? "ld_door_armed" : "ld_door");
 			if (t) g.texture = t;
@@ -493,6 +496,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		if (kind === "startDoorChase") { this.#door.triggered = true; this.#door.armed = true; this.#drawDoor(); return; }
 		if (kind === "collapseFloor") { this.#floorCollapsed = true; this.#drawFloor(); return; }
 		if (kind === "nextRun") { this.#advanceRun(); return; }
+		if (kind === "win") { this.#advanceRun(); return; }
 		if (kind === "redirectCTA") { this.#redirectCTA(); return; }
 		if (kind === "splitFloor") { this.#activeIds.add(targetId); this.#splitIds.add(targetId); this.#motionRunIds.add(targetId); this.#ensureRuntime(targetId); this.#drawFloor(); return; }
 		if (kind === "openPit") { this.#activeIds.add(targetId); this.#ensureRuntime(targetId); this.#drawFloor(); return; }
@@ -804,10 +808,18 @@ export default class Game extends IMPION.ComponentEmpty {
 
 		//- door chase (runs 0/1) + skip trap
 
-		if (this.#runIndex === 0 || this.#runIndex === 1) {
+		// fake = troll door that runs away & kills; win = static safe goal; null = legacy per-run
+		const dm = s.doorMode;
+		const doorChases = dm === "fake" || (dm == null && (this.#runIndex === 0 || this.#runIndex === 1));
+		if (doorChases) {
 			const hasDoorTrigger = s.triggers.some((t) => t.action === "startDoorChase");
-			if (this.#runIndex === 0 && !hasDoorTrigger && !this.#door.triggered && this.#door.x - px < s.triggerDistance) { this.#door.triggered = true; this.#door.armed = true; this.#drawDoor(); }
-			if (this.#runIndex === 1 && !this.#door.triggered && (this.#vx || this.#keys["Space"])) { this.#door.triggered = true; this.#door.armed = true; this.#drawDoor(); }
+			if (!hasDoorTrigger && !this.#door.triggered) {
+				const byProximity = this.#door.x - px < s.triggerDistance;
+				const byInput = this.#vx || this.#keys["Space"];
+				// legacy: run0 arms on proximity, run1 on first input; fake arms on either
+				const trig = dm === "fake" ? (byProximity || byInput) : (this.#runIndex === 0 ? byProximity : byInput);
+				if (trig) { this.#door.triggered = true; this.#door.armed = true; this.#drawDoor(); }
+			}
 			if (this.#door.triggered) {
 				this.#door.timer += (1 / 60) * dt;
 				const speed = Math.min(s.doorAccelSpeed + this.#door.timer * 1.5, s.doorAccelSpeed + 7);
