@@ -116,8 +116,17 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
     const isLethal = (o, moving) => { const base = o.deadly !== undefined ? o.deadly : roleOf(o) === 'hazard'; if (!base) return false; return o.deadlyWhileMoving ? !!moving : true; };
     const objectRect = (o) => {
       const rt = rtOf(o.id) || o;
-      if (isBottom(o.type)) return { x: rt.x - o.width / 2, y: rt.y - o.height, w: o.width, h: o.height };
-      return { x: rt.x - o.width / 2, y: rt.y - o.height / 2, w: o.width, h: o.height };
+      const base = isBottom(o.type)
+        ? { x: -o.width / 2, y: -o.height, w: o.width, h: o.height }
+        : { x: -o.width / 2, y: -o.height / 2, w: o.width, h: o.height };
+      if (!o.rotation) return { x: rt.x + base.x, y: rt.y + base.y, w: base.w, h: base.h };
+      const t = o.rotation * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const x of [base.x, base.x + base.w]) for (const y of [base.y, base.y + base.h]) {
+        const rx = x * c - y * s, ry = x * s + y * c;
+        minX = Math.min(minX, rx); maxX = Math.max(maxX, rx); minY = Math.min(minY, ry); maxY = Math.max(maxY, ry);
+      }
+      return { x: rt.x + minX, y: rt.y + minY, w: maxX - minX, h: maxY - minY };
     };
 
     const title = document.getElementById('title');

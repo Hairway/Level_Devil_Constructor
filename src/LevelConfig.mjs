@@ -61,10 +61,21 @@ export const motionOf = (o) => {
 	return { mode: 'static', target: 'player', speed: 2, dirX: 1, dirY: 0, distance: 0, loop: false, startOn: 'spawn', delay: 0 };
 };
 
-// Local rect (origin at the object's position anchor) — matches legacy objectLocalRect.
+// Local rect (origin at the object's position anchor). When rotated, returns the
+// axis-aligned bounding box of the rotated shape so the hitbox matches the visual.
 export const objectLocalRect = (o) => {
-	if (isBottomAnchored(o.type)) return { x: -o.width / 2, y: -o.height, w: o.width, h: o.height };
-	return { x: -o.width / 2, y: -o.height / 2, w: o.width, h: o.height };
+	const base = isBottomAnchored(o.type)
+		? { x: -o.width / 2, y: -o.height, w: o.width, h: o.height }
+		: { x: -o.width / 2, y: -o.height / 2, w: o.width, h: o.height };
+	if (!o.rotation) return base;
+	const t = o.rotation * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+	let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+	for (const x of [base.x, base.x + base.w]) for (const y of [base.y, base.y + base.h]) {
+		const rx = x * c - y * s, ry = x * s + y * c;
+		minX = Math.min(minX, rx); maxX = Math.max(maxX, rx);
+		minY = Math.min(minY, ry); maxY = Math.max(maxY, ry);
+	}
+	return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 };
 
 export const rectsOverlap = (ax, ay, aw, ah, bx, by, bw, bh) =>
