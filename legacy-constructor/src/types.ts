@@ -119,6 +119,7 @@ export interface GameConfig {
   bgColor?: string; // scene backdrop color (hex)
   groundColor?: string; // floor/ground band color (hex)
   groundOffset?: number; // visual px to nudge hero + objects down toward the ground (0 = none)
+  noBaseGround?: boolean; // build the floor from solid platform tiles; no implicit ground line
   title?: string; // headline shown above the level (default "REACH THE DOOR")
   installText?: string; // install/CTA button label (default "Install Now")
   ctaHeadline?: string; // endcard headline (default "YOU DIED... AGAIN?")

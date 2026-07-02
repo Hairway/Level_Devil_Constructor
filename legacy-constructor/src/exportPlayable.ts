@@ -278,7 +278,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
         if (hw <= 0) return;
         g.beginFill(COL_BG); g.drawRect(pit.x - hw / 2, GROUND_Y - 2, hw, VIEW_H - GROUND_Y + 16); g.endFill();
       });
-      if (floorCollapsed) { g.beginFill(COL_BG); g.drawRect(90, GROUND_Y - 2, VIEW_W - 180, VIEW_H - GROUND_Y + 16); g.endFill(); }
+      if (floorCollapsed || config.noBaseGround) { g.beginFill(COL_BG); g.drawRect(0, GROUND_Y - 2, VIEW_W, VIEW_H - GROUND_Y + 16); g.endFill(); }
       // door
       g.beginFill(0xcfcfcf); g.drawRect(door.x - 20, door.y - 56 + gOff, 40, 56); g.endFill();
       g.lineStyle(6, doorTriggered ? 0x8a1f10 : 0xb37111, 1); g.drawRect(door.x - 20, door.y - 56 + gOff, 40, 56); g.lineStyle(0);
@@ -323,7 +323,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
       if (keys.ArrowRight || keys.KeyD) player.vx = config.playerSpeed;
       if ((keys.Space || keys.ArrowUp || keys.KeyW) && player.grounded) { player.vy = -config.jumpForce; player.grounded = false; }
       player.vy += config.gravity * delta;
-      player.x = clamp(player.x + player.vx * delta, PLAYER_W, VIEW_W - PLAYER_W);
+      player.x = clamp(player.x + player.vx * delta, PLAYER_W / 2, VIEW_W - PLAYER_W / 2);
       player.y += player.vy * delta;
 
       // force zones (conveyors / wind)
@@ -331,7 +331,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
         if (!t.pushX && !t.pushY) return;
         if (overlap({ x: player.x - PLAYER_W / 2, y: player.y - PLAYER_H, w: PLAYER_W, h: PLAYER_H }, { x: t.x, y: t.y, w: t.width, h: t.height })) { player.x += (t.pushX || 0) * delta; player.y += (t.pushY || 0) * delta; }
       });
-      player.x = clamp(player.x, PLAYER_W, VIEW_W - PLAYER_W);
+      player.x = clamp(player.x, PLAYER_W / 2, VIEW_W - PLAYER_W / 2);
       if (player.y > VIEW_H + 40) return die('PIT');
 
       // solid / spring landing
@@ -356,7 +356,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
         return player.x > o.x - hw && player.x < o.x + hw && player.y >= GROUND_Y - 4;
       });
       if (!landed && player.y >= GROUND_Y) {
-        if (!floorCollapsed && !inPit) { player.y = GROUND_Y; player.vy = 0; player.grounded = true; }
+        if (!floorCollapsed && !inPit && !config.noBaseGround) { player.y = GROUND_Y; player.vy = 0; player.grounded = true; }
         else player.grounded = false;
       }
 
