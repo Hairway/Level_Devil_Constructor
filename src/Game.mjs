@@ -219,6 +219,8 @@ export default class Game extends IMPION.ComponentEmpty {
 			bgColor: c.bgColor || DEFAULT_BG,
 			groundColor: c.groundColor || DEFAULT_GROUND,
 			groundOffset: c.groundOffset || 0,
+			title: c.title || null,
+			ctaButton: c.ctaButton || null,
 			sound: c.sound || null,
 			objects: Array.isArray(c.objects) ? c.objects : [],
 			triggers: Array.isArray(c.triggers) ? c.triggers : [],
@@ -239,6 +241,10 @@ export default class Game extends IMPION.ComponentEmpty {
 		this.#splitIds = new Set();
 		this.#motionRunIds = new Set(s.objects.filter((o) => motionOf(o).startOn === "spawn").map((o) => o.id));
 		this.#runtime = new Map(s.objects.map((o) => [o.id, { x: o.x, y: o.y, vy: 0, traveled: 0, pong: 1, since: 0, split: 0 }]));
+
+		// editable HUD/CTA text (per-run title, CTA button label)
+		if (s.title && this.components["Task"]) this.components["Task"].text = s.title;
+		if (s.ctaButton && this.components["ButtonCTAText"]) this.components["ButtonCTAText"].text = s.ctaButton;
 
 		// visual-only downward nudge so the hero + traps sit on the ground (physics unchanged)
 		const gOff = s.groundOffset || 0;

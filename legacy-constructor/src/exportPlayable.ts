@@ -20,6 +20,10 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
   const firstConfig = project.runs[0]?.config || ({} as PlayableProject['runs'][number]['config']);
   const cssBg = firstConfig.bgColor || '#c77b00';
   const cssBand = firstConfig.groundColor || '#e2a33c';
+  const installText = escapeHtml(firstConfig.installText || 'Install Now');
+  const ctaHeadline = escapeHtml(firstConfig.ctaHeadline || 'YOU DIED... AGAIN?');
+  const ctaText = escapeHtml(firstConfig.ctaText || 'LEVEL DEVIL IS BRUTAL. CAN YOU OUTSMART IT?');
+  const ctaButton = escapeHtml(firstConfig.ctaButton || 'PLAY NOW');
   return `<!doctype html>
 <html>
 <head>
@@ -69,12 +73,12 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
       <div id="title" class="hud">REACH THE DOOR</div>
       <div id="level"></div>
       <button id="sound">)))</button>
-      <button id="install">Install Now</button>
+      <button id="install">${installText}</button>
       <button id="left" class="ctrl" data-key="ArrowLeft">Left</button>
       <button id="right" class="ctrl" data-key="ArrowRight">Right</button>
       <button id="jump" class="ctrl" data-key="Space">Jump</button>
       <button id="skip">SKIP</button>
-      <div id="cta"><h1>YOU DIED... AGAIN?</h1><p>LEVEL DEVIL IS BRUTAL. CAN YOU OUTSMART IT?</p><button>PLAY NOW</button></div>
+      <div id="cta"><h1>${ctaHeadline}</h1><p>${ctaText}</p><button>${ctaButton}</button></div>
     </div>
   </div>
   <script>${safeScript(pixiRuntime)}</script>
@@ -154,7 +158,7 @@ export const generateStandalonePlayable = (project: PlayableProject) => {
       doorTimer = 0; doorVx = 0; doorVy = 0; dead = false; skipActive = false; skipClicked = false; floorCollapsed = false;
       skip.style.display = 'none';
       cta.style.display = 'none';
-      title.textContent = runIndex === 2 ? 'TRY NEW DOOR' : 'REACH THE DOOR';
+      title.textContent = config.title || (runIndex === 2 ? 'TRY NEW DOOR' : 'REACH THE DOOR');
       dots.innerHTML = Array.from({ length: 5 }, (_, i) => '<i class="' + (i <= runIndex ? 'filled' : '') + '"></i>').join('');
       objCache.forEach(s => s.destroy());
       objCache.clear();

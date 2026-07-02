@@ -44,6 +44,7 @@ import {
   Sliders,
   Terminal,
   Trash2,
+  Type,
   Upload,
   Volume2,
 } from 'lucide-react';
@@ -1781,6 +1782,33 @@ export default function App() {
                 className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
               />
               <p className="text-[10px] text-zinc-600 mt-0.5">Visually lowers the hero &amp; traps so they sit on the ground.</p>
+            </div>
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <Type className="w-3.5 h-3.5" />
+              HUD &amp; CTA Text
+            </h3>
+            <div className="space-y-2">
+              {([
+                ['title', 'Headline (per run)', 'REACH THE DOOR'],
+                ['installText', 'Install button', 'Install Now'],
+                ['ctaHeadline', 'Endcard headline', 'YOU DIED... AGAIN?'],
+                ['ctaText', 'Endcard sub-text', 'LEVEL DEVIL IS BRUTAL. CAN YOU OUTSMART IT?'],
+                ['ctaButton', 'Endcard button', 'PLAY NOW'],
+              ] as Array<[keyof GameConfig, string, string]>).map(([field, label, placeholder]) => (
+                <label key={field as string} className="block">
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">{label}</span>
+                  <input
+                    value={(config[field] as string) || ''}
+                    placeholder={placeholder}
+                    onChange={(e) => updateActiveConfig({ ...config, [field]: e.target.value || undefined })}
+                    className={`${inputClass} text-[11px]`}
+                  />
+                </label>
+              ))}
+              <p className="text-[10px] text-zinc-600">Headline is per run; install/endcard apply to the built &amp; exported playable.</p>
             </div>
           </section>
 

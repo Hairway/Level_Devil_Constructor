@@ -204,7 +204,7 @@ export default function LevelDevilGame({
     return () => clearTimeout(t);
   }, [activeRun, onLogEvent]);
 
-  const activeTitle = activeRun === 3 ? 'TRY NEW DOOR' : 'REACH THE DOOR';
+  const activeTitle = config.title || (activeRun === 3 ? 'TRY NEW DOOR' : 'REACH THE DOOR');
 
   const LevelIndicators = () => (
     <div style={{ display: 'flex', gap: '7px', justifyContent: 'center', marginBottom: '20px' }}>
@@ -306,7 +306,7 @@ export default function LevelDevilGame({
         ...style,
       }}
     >
-      Install Now
+      {config.installText || 'Install Now'}
     </button>
   );
 
@@ -1887,13 +1887,13 @@ export default function LevelDevilGame({
         {isCtaVisible && (
           <div style={{ ...overlayCenter, background: 'rgba(0,0,0,0.9)', padding: 20, textAlign: 'center', cursor: 'pointer', animation: 'ld-fade 0.3s ease' }}
             onClick={() => goToStore('endcard_tap')}>
-            <span style={{ color: '#ef4444', fontFamily: '"Press Start 2P", monospace', fontSize: '18px', lineHeight: '26px', marginBottom: 12, display: 'block', textTransform: 'uppercase' }}>YOU DIED... AGAIN?</span>
+            <span style={{ color: '#ef4444', fontFamily: '"Press Start 2P", monospace', fontSize: '18px', lineHeight: '26px', marginBottom: 12, display: 'block', textTransform: 'uppercase' }}>{config.ctaHeadline || 'YOU DIED... AGAIN?'}</span>
             <p style={{ color: '#d4d4d8', maxWidth: 300, fontSize: 12, marginBottom: 20, fontFamily: '"Press Start 2P", monospace', lineHeight: '18px' }}>
-              LEVEL DEVIL IS BRUTAL. CAN YOU OUTSMART IT?
+              {config.ctaText || 'LEVEL DEVIL IS BRUTAL. CAN YOU OUTSMART IT?'}
             </p>
             <button onClick={(e) => { e.stopPropagation(); goToStore('cta_button'); }}
               style={{ padding: '14px 20px', background: '#10b981', color: '#fff', fontFamily: '"Press Start 2P", monospace', fontSize: 12, border: 'none', borderBottom: '4px solid #047857', borderRadius: 4, width: '100%', maxWidth: 260, cursor: 'pointer' }}>
-              PLAY NOW
+              {config.ctaButton || 'PLAY NOW'}
             </button>
             <span style={{ color: '#71717a', fontSize: 9, marginTop: 16, letterSpacing: 1, textTransform: 'uppercase' }}>Free Playable - Ad Endcard</span>
           </div>

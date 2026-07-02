@@ -117,6 +117,11 @@ export interface GameConfig {
   bgColor?: string; // scene backdrop color (hex)
   groundColor?: string; // floor/ground band color (hex)
   groundOffset?: number; // visual px to nudge hero + objects down toward the ground (0 = none)
+  title?: string; // headline shown above the level (default "REACH THE DOOR")
+  installText?: string; // install/CTA button label (default "Install Now")
+  ctaHeadline?: string; // endcard headline (default "YOU DIED... AGAIN?")
+  ctaText?: string; // endcard sub-text
+  ctaButton?: string; // endcard button label (default "PLAY NOW")
   triggerLayers?: TriggerLayer[]; // editor-only: named layers to color/hide groups of triggers
   sound?: SoundConfig; // per-event sound assignments + music/volume (applied in the built playable)
 }

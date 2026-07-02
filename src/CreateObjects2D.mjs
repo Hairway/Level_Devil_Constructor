@@ -98,5 +98,6 @@ export default class CreateObjects2D {
 		cta.visible = false;
 		scene.addChild(cta);
 		this.components["ButtonCTA"] = cta;
+		this.components["ButtonCTAText"] = ctaText; // so Game can relabel it per level
 	}
 }
