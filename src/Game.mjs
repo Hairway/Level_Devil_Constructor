@@ -27,6 +27,7 @@ export default class Game extends IMPION.ComponentEmpty {
 	#config = null;
 	#door = { x: 0, y: 0, armed: false, triggered: false, timer: 0, vx: 0, vy: 0 };
 	#floorCollapsed = false;
+	#checkpoint = null; // {x,y} respawn point set by a checkpoint trigger; cleared per run
 
 	#activeIds = new Set();
 	#hiddenIds = new Set();
@@ -182,6 +183,7 @@ export default class Game extends IMPION.ComponentEmpty {
 		const runs = this.#project().runs || [];
 		this.#runIndex = Math.max(0, Math.min(index, runs.length - 1));
 		this.#config = this.#normalizeConfig(runs[this.#runIndex] ? runs[this.#runIndex].config : {});
+		this.#checkpoint = null; // a fresh run starts from its own spawn
 		this.#resetRun();
 	}
 
@@ -224,7 +226,8 @@ export default class Game extends IMPION.ComponentEmpty {
 		const gOff = s.groundOffset || 0;
 		this.#objectsLayer.position.y = gOff;
 		if (this.#hero.anchor) this.#hero.anchor.set(0.5, 1 - gOff / (this.#hero.height || PLAYER_H));
-		this.#hero.position.set(s.playerSpawnX, GROUND_Y);
+		// respawn at the last checkpoint if one was reached, else the run's spawn
+		this.#hero.position.set(this.#checkpoint ? this.#checkpoint.x : s.playerSpawnX, this.#checkpoint ? this.#checkpoint.y : GROUND_Y);
 		this.#loadFonts(s.objects);
 		this.#buildObjectSprites();
 		this.#drawFloor();
@@ -485,6 +488,11 @@ export default class Game extends IMPION.ComponentEmpty {
 			const ty = to ? (rt ? rt.y : to.y) : GROUND_Y;
 			this.#hero.position.set(tx, ty);
 			this.#vy = 0;
+			return;
+		}
+		if (kind === "checkpoint") {
+			// remember where the player is now; death respawns here instead of the run start
+			this.#checkpoint = { x: this.#hero.position.x, y: GROUND_Y };
 			return;
 		}
 		if (kind === "deactivate") {

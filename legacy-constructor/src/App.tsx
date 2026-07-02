@@ -369,6 +369,7 @@ const ACTION_OPTIONS: Array<{ value: ObjectActionKind; label: string }> = [
   { value: 'deactivate', label: 'Deactivate target (hide/vanish)' },
   { value: 'toggle', label: 'Toggle target (show/hide)' },
   { value: 'teleport', label: 'Teleport player to target' },
+  { value: 'checkpoint', label: 'Set checkpoint (respawn here)' },
   { value: 'openPit', label: 'Open pit' },
   { value: 'splitFloor', label: 'Split floor open' },
   { value: 'collapseFloor', label: 'Collapse whole floor' },
@@ -1440,7 +1441,7 @@ export default function App() {
                 <div className="rounded-lg border border-zinc-800 bg-black/40 p-2 space-y-2">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Action</div>
                   <SelectField label="Does" value={selObjAction.kind} options={ACTION_OPTIONS} onChange={(kind) => updateSelectedAction({ kind: kind as ObjectActionKind })} />
-                  {selObjAction.kind !== 'none' && !['collapseFloor', 'nextRun', 'redirectCTA'].includes(selObjAction.kind) && (
+                  {selObjAction.kind !== 'none' && !['collapseFloor', 'nextRun', 'redirectCTA', 'checkpoint'].includes(selObjAction.kind) && (
                     <SelectField label="On target" value={selObjAction.targetId} options={actionTargetOptions} onChange={(targetId) => updateSelectedAction({ targetId })} />
                   )}
                   <label className="flex items-center gap-2 text-zinc-400">
@@ -1548,7 +1549,7 @@ export default function App() {
                     options={config.triggers.filter((t) => t.id !== selectedEntityId).map((t) => ({ value: t.id, label: t.label }))}
                     onChange={(targetId) => updateSelectedTrigger({ targetId })}
                   />
-                ) : !['collapseFloor', 'nextRun', 'redirectCTA'].includes(selectedTrigger.action) && (
+                ) : !['collapseFloor', 'nextRun', 'redirectCTA', 'checkpoint'].includes(selectedTrigger.action) && (
                   <SelectField
                     label="Target"
                     value={selectedTrigger.targetId}

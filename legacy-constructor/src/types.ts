@@ -8,7 +8,7 @@ export type TrapObjectType =
   | 'platform'
   | 'button'
   | 'text';
-export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'teleport' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
+export type TriggerAction = 'activate' | 'deactivate' | 'toggle' | 'teleport' | 'checkpoint' | 'openPit' | 'splitFloor' | 'startDoorChase' | 'collapseFloor' | 'nextRun' | 'redirectCTA' | 'chain';
 
 // How an object behaves over time once it is active.
 export type MotionMode = 'static' | 'linear' | 'chase' | 'fall' | 'orbit' | 'pendulum' | 'path';
@@ -21,6 +21,7 @@ export type ObjectActionKind =
   | 'deactivate'
   | 'toggle'
   | 'teleport'
+  | 'checkpoint'
   | 'openPit'
   | 'splitFloor'
   | 'startDoorChase'

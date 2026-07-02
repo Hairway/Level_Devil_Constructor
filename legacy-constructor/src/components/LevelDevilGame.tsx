@@ -127,6 +127,7 @@ export default function LevelDevilGame({
     endcardActive: false,
     splashActive: true,
     playerMoved: false,
+    checkpoint: null as { x: number; y: number } | null,
     activeObjectIds: new Set<string>(),
     hiddenObjectIds: new Set<string>(),
     firedTriggerIds: new Set<string>(),
@@ -162,13 +163,14 @@ export default function LevelDevilGame({
 
   useEffect(() => {
     stateRef.current.activeRun = activeRun;
+    stateRef.current.checkpoint = null; // a new run starts from its own spawn
     resetRef.current();
   }, [activeRun]);
 
   useEffect(() => {
     stateRef.current.editorMode = editorMode;
     // Entering Play always begins a clean run; entering the editor just redraws the scene.
-    if (editorMode === 'play') resetRef.current();
+    if (editorMode === 'play') { stateRef.current.checkpoint = null; resetRef.current(); }
     else redrawRef.current();
   }, [editorMode]);
 
@@ -992,8 +994,10 @@ export default function LevelDevilGame({
 
       const gOff = s.config.groundOffset || 0; // visual-only downward nudge (physics unchanged)
       player.anchor.set(0.5, 1 - gOff / PLAYER_H);
-      player.x = s.config.playerSpawnX;
-      player.y = GROUND_Y;
+      // respawn at the last checkpoint if one was reached this run (play only), else the spawn
+      const cp = s.editorMode === 'play' ? s.checkpoint : null;
+      player.x = cp ? cp.x : s.config.playerSpawnX;
+      player.y = cp ? cp.y : GROUND_Y;
       player.alpha = 1;
       setPlayerTexture(heroTex.idle);
       player.scale.set(PLAYER_SCALE, PLAYER_SCALE);
@@ -1155,6 +1159,11 @@ export default function LevelDevilGame({
           onLogEvent('TRAP_ACTIVATE', `[Action] ${sourceLabel} teleported player to ${targetLabel}`);
           break;
         }
+        case 'checkpoint':
+          // remember where the player is now; death respawns here instead of the run start
+          s.checkpoint = { x: player.x, y: GROUND_Y };
+          onLogEvent('PROGRESS', `[Action] ${sourceLabel} set a checkpoint`);
+          break;
         case 'deactivate':
           s.hiddenObjectIds.add(targetId);
           s.activeObjectIds.delete(targetId);
