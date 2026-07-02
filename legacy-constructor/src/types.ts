@@ -118,6 +118,21 @@ export interface GameConfig {
   groundColor?: string; // floor/ground band color (hex)
   groundOffset?: number; // visual px to nudge hero + objects down toward the ground (0 = none)
   triggerLayers?: TriggerLayer[]; // editor-only: named layers to color/hide groups of triggers
+  sound?: SoundConfig; // per-event sound assignments + music/volume (applied in the built playable)
+}
+
+// Each field is a packed sound key (filename without extension), '' = silent for that event.
+export interface SoundConfig {
+  muted?: boolean;
+  volume?: number; // 0..1 master volume
+  music?: string;  // looping background music key
+  jump?: string;
+  death?: string;
+  win?: string;
+  click?: string;
+  land?: string;
+  spring?: string;
+  trap?: string;   // activate / deactivate / toggle
 }
 
 export interface TriggerLayer {

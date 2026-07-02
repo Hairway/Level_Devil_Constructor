@@ -45,6 +45,7 @@ import {
   Terminal,
   Trash2,
   Upload,
+  Volume2,
 } from 'lucide-react';
 
 const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
@@ -356,6 +357,22 @@ const FONT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'Trebuchet MS, sans-serif', label: 'Trebuchet' },
   { value: 'Verdana, sans-serif', label: 'Verdana' },
 ];
+// Packed sound keys (filenames without extension) available to assign to events + preview.
+const SFX_KEYS = ['565', '566', '568', '721', '727', '731', '733', '734', '735', '736', '742', '858', '889', '890', 'SFX_footstep', 'SFX_shift', 'SFX_spring'];
+const SFX_OPTIONS = [{ value: '', label: 'None' }, ...SFX_KEYS.map((k) => ({ value: k, label: k }))];
+const MUSIC_OPTIONS = [{ value: '', label: 'None' }, { value: 'bg_music', label: 'bg_music (gameplay)' }];
+// event key, label, default sound (mirrors IMPION Game #SFX_DEFAULT)
+const SOUND_EVENTS: Array<{ key: 'jump' | 'death' | 'win' | 'click' | 'land' | 'spring' | 'trap'; label: string; def: string }> = [
+  { key: 'jump', label: 'Jump', def: '731' },
+  { key: 'death', label: 'Death', def: '733' },
+  { key: 'win', label: 'Win', def: '568' },
+  { key: 'click', label: 'Button click', def: '721' },
+  { key: 'land', label: 'Landing', def: 'SFX_footstep' },
+  { key: 'spring', label: 'Spring bounce', def: 'SFX_spring' },
+  { key: 'trap', label: 'Trap activate', def: 'SFX_shift' },
+];
+const previewSound = (key: string) => { if (!key) return; try { const a = new Audio('/sounds/' + key + '.mp3'); a.volume = 0.9; a.play().catch(() => {}); } catch { /* ignore */ } };
+
 const ROLE_OPTIONS: Array<{ value: CollisionRole; label: string }> = [
   { value: 'hazard', label: 'Hazard (kills)' },
   { value: 'solid', label: 'Solid (platform)' },
@@ -1765,6 +1782,52 @@ export default function App() {
               />
               <p className="text-[10px] text-zinc-600 mt-0.5">Visually lowers the hero &amp; traps so they sit on the ground.</p>
             </div>
+          </section>
+
+          <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+              <Volume2 className="w-3.5 h-3.5" />
+              Sound
+            </h3>
+            {(() => {
+              const snd = config.sound || {};
+              const updateSound = (patch: Partial<NonNullable<GameConfig['sound']>>) => updateActiveConfig({ ...config, sound: { ...(config.sound || {}), ...patch } });
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-zinc-400 text-xs">
+                      <input type="checkbox" checked={!!snd.muted} onChange={(e) => updateSound({ muted: e.target.checked })} />
+                      Mute all
+                    </label>
+                    <div className="flex-1">
+                      <div className="flex justify-between text-[10px] uppercase tracking-wider text-zinc-500 mb-1"><span>Volume</span><span className="text-amber-500 font-mono">{Math.round((snd.volume ?? 1) * 100)}%</span></div>
+                      <input type="range" min={0} max={1} step={0.05} value={snd.volume ?? 1} onChange={(e) => updateSound({ volume: parseFloat(e.target.value) })} className="w-full accent-amber-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer" />
+                    </div>
+                  </div>
+                  <div className="flex items-end gap-1.5">
+                    <div className="flex-1">
+                      <SelectField label="Background music" value={snd.music ?? 'bg_music'} options={MUSIC_OPTIONS} onChange={(music) => updateSound({ music })} />
+                    </div>
+                    <button onClick={() => previewSound(snd.music ?? 'bg_music')} className="mb-0.5 px-2 py-1.5 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer" title="Preview">▶</button>
+                  </div>
+                  <div className="border-t border-zinc-900 pt-2 space-y-2">
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500">Event sounds (▶ to preview)</div>
+                    {SOUND_EVENTS.map((ev) => {
+                      const cur = snd[ev.key] !== undefined ? (snd[ev.key] as string) : ev.def;
+                      return (
+                        <div key={ev.key} className="flex items-end gap-1.5">
+                          <div className="flex-1">
+                            <SelectField label={ev.label} value={cur} options={SFX_OPTIONS} onChange={(v) => updateSound({ [ev.key]: v } as Partial<NonNullable<GameConfig['sound']>>)} />
+                          </div>
+                          <button onClick={() => previewSound(cur)} className="mb-0.5 px-2 py-1.5 rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer" title="Preview">▶</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-zinc-600">Applies to the built/exported playable. Preview plays the file so you can pick by ear.</p>
+                </div>
+              );
+            })()}
           </section>
 
           <section className="border border-zinc-900 bg-zinc-900/30 rounded-xl p-4">
